@@ -3,6 +3,7 @@ name = "zincmind"
 version = "0.1.0"
 description = "Extract data from Coppermind and convert to Markdown"
 readme = "README.md"
+license = {text = "GPL-3.0-only"}
 requires-python = ">=3.12"
 dependencies = [
     "beautifulsoup4>=4.12.3",
