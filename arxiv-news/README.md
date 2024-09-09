@@ -23,8 +23,3 @@ Where `$URL` is the link to the raw email. In Fastmail, this can be found by cli
 on Actions > Show Raw Message. Copy the URL and paste it in the command above.
 
 This requires `curl` and [`glow`](https://github.com/charmbracelet/glow).
-
-#### clean.py
-
-This script is an attempt to transform the raw email into a more readable format. It
-doesn't work very well, though.
