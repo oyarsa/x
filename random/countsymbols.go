@@ -1,3 +1,5 @@
+//go:build countsymbols
+
 // Count ASCII symbols in code files in a given directory.
 package main
 

@@ -1,3 +1,5 @@
+//go:build markdown_word_counter
+
 // Count the most common words in a markdown file.
 // Excludes headings, code blocks and indented blocks.
 package main
