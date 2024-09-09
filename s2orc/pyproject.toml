@@ -3,7 +3,7 @@ name = "s2orc"
 version = "0.1.0"
 description = "Downloand process the S2ORC dataset"
 readme = "README.md"
-license = {text = "GPL-3.0-only"}
+license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.10.5",
