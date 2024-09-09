@@ -10,6 +10,7 @@ Experimental projects that don't fit anywhere else.
   [Coppermind](https://coppermind.net/wiki/Main_Page) wiki and convert to Markdown.
 - [s2orc](s2orc/README.md): Extract data from [Semantic Scholar's
   API](https://api.semanticscholar.org/api-docs/).
+- [samples](samples/README.md): Random code samples that might or might not be useful.
 
 ## License
 
