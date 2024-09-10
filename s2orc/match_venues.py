@@ -47,12 +47,19 @@ def normalize_text(text: str) -> str:
 
 
 def main(infile: TextIO, outfile: TextIO) -> None:
-    normalized_conferences = {normalize_text(conf) for conf in ACL_CONFERENCES}
+    normalized_conferences = {normalize_text(conf): conf for conf in ACL_CONFERENCES}
 
     for line in infile:
         normalized_line = normalize_text(line.strip())
-        if any(conf in normalized_line for conf in normalized_conferences):
-            outfile.write(line)
+        for norm_conf, original_conf in normalized_conferences.items():
+            pattern = (
+                r"\b"
+                + r"\s+".join(re.escape(word) for word in norm_conf.split())
+                + r"\b"
+            )
+            if re.search(pattern, normalized_line):
+                outfile.write(f"{original_conf} -> {line}")
+                break
 
 
 if __name__ == "__main__":
