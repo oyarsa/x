@@ -20,14 +20,12 @@ def extract_py_docstring(file_path: Path) -> str | None:
 def extract_go_docstring(file_path: Path) -> str | None:
     content = file_path.read_text()
 
-    if match := re.search(
-        r"((?:\/\/.*?\n|\/\*(?:.|[\r\n])*?\*\/)\s*)+package\s+\w+",
-        content,
-        re.DOTALL,
-    ):
-        comments = match[1].strip()
-        # Remove comment symbols and extra whitespace
-        docstring = re.sub(r"(^|\n)\s*(//)|\s*(/\*|\*/)", "\n", comments).strip()
+    # Match `//` comments before the package declaration, skipping `//go:` lines.
+    if match := re.search(r"(//(?!go:).*?\n\s*)+package\s+\w+", content, re.DOTALL):
+        comments = match[0].strip()
+
+        # Remove `//` symbols and extra whitespace
+        docstring = re.sub(r"(^|\n)\s*//", "\n", comments).strip()
         return docstring.splitlines()[0].strip()
 
     return None

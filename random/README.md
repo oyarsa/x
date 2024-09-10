@@ -6,8 +6,8 @@ Weird and random code fragments that might or might not be helpful some day.
 
 - [`countsymbols.go`](countsymbols.go): Count ASCII symbols in code files in a given
   directory.
-- [`markdown_word_counter.go`](markdown_word_counter.go): Excludes headings, code blocks
-  and indented blocks.
+- [`markdown_word_counter.go`](markdown_word_counter.go): Count the most common words in
+  a markdown file.
 - [`find_forelse.py`](find_forelse.py): Count occurences of for-else in Python files.
 - [`docstrings.py`](docstrings.py): Generate a list of files and descriptions from
   Python and Go module docstrings.
