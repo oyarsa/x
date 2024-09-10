@@ -36,7 +36,8 @@ def main(venues_file: TextIO, papers: list[Path], output_path: Path) -> None:
         for paper_file in pbar:
             with gzip.open(paper_file, "rt") as file:
                 data = json.load(file)
-                output.extend(match_papers(venues, data))
+                matched = match_papers(venues, data)
+                output.extend(m | {"source": paper_file.stem} for m in matched)
                 pbar.set_postfix(matched=len(output))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
