@@ -20,7 +20,7 @@ def main() -> None:
         arxiv_match = re.search(r"arXiv:(\d+\.\d+)", part)
         if not arxiv_match:
             continue
-        arxiv_id = arxiv_match.group(1)
+        arxiv_id = arxiv_match[1]
 
         # Extract title (may be multi-line)
         if title_match := re.search(r"Title: (.*?)(?:\nAuthors:|$)", part, re.DOTALL):
@@ -29,8 +29,10 @@ def main() -> None:
             papers.append(Paper(title, link))
 
     print(len(papers), "papers found.")
-    for p in papers:
-        print(f"1. [{p.title}]({p.link})")
+    for i, p in enumerate(papers, 1):
+        print(f"{i}. [{p.title}]({p.link})")
+        if i % 10 == 0:
+            print("\n---\n")
 
 
 if __name__ == "__main__":
