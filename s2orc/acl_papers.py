@@ -27,7 +27,7 @@ def match_papers(
                 break
 
 
-def main(venues_file: TextIO, papers: list[Path], output_file: TextIO) -> None:
+def main(venues_file: TextIO, papers: list[Path], output_path: Path) -> None:
     venues = [normalise_text(venue) for venue in venues_file]
     print(f"Loaded {len(venues)} venues.")
     output: list[dict[str, str]] = []
@@ -39,8 +39,9 @@ def main(venues_file: TextIO, papers: list[Path], output_file: TextIO) -> None:
                 output.extend(match_papers(venues, data))
                 pbar.set_postfix(matched=len(output))
 
-    Path(output_file.name).parent.mkdir(parents=True, exist_ok=True)
-    json.dump(output, output_file, indent=2)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(output_path, "wt") as outfile:
+        json.dump(output, outfile, indent=2)
 
 
 if __name__ == "__main__":
@@ -54,8 +55,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "output_file",
-        type=argparse.FileType("w"),
-        help="Output JSON file where matches will be written",
+        type=Path,
+        help="Path to gzipped JSON file where matches will be written",
     )
     parser.add_argument(
         "papers",
