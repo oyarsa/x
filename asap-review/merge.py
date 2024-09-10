@@ -34,8 +34,8 @@ def main(dirs: list[Path], output_path: Path) -> None:
     output: list[dict[str, Any]] = []
 
     for dir in dirs:
-        contents = dir / dir.with_name(f"{dir.name}_content")
-        reviews = dir / dir.with_name(f"{dir.name}_review")
+        contents = dir / (f"{dir.name}_content")
+        reviews = dir / f"{dir.name}_review"
 
         for content_file in contents.glob("*.json"):
             review_file = reviews / content_file.name.replace("_content", "_review")
@@ -60,8 +60,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "dirs", nargs="+", type=Path, help="Directories containing files to merge"
     )
-    parser.add_argument(
-        "--output", "-o", type=Path, default="output.json", help="Output JSON file"
-    )
+    parser.add_argument("output", type=Path, help="Output JSON file")
     args = parser.parse_args()
     main(args.dirs, args.output)
