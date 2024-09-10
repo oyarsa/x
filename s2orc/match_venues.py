@@ -25,7 +25,6 @@ ACL_CONFERENCES = [
     "coling", "international conference on computational linguistics",
     "eamt", "european association for machine translation",
     "hlt", "human language technology",
-    "ijclclp", "international journal of computational linguistics and chinese language processing",
     "ijcnlp", "international joint conference on natural language processing",
     "lilt", "linguistic issues in language technology",
     "lrec", "language resources and evaluation conference",
@@ -47,18 +46,18 @@ def normalize_text(text: str) -> str:
 
 
 def main(infile: TextIO, outfile: TextIO) -> None:
-    normalized_conferences = {normalize_text(conf): conf for conf in ACL_CONFERENCES}
+    normalized_conferences = {normalize_text(conf) for conf in ACL_CONFERENCES}
 
     for line in infile:
         normalized_line = normalize_text(line.strip())
-        for norm_conf, original_conf in normalized_conferences.items():
+        for norm_conf in normalized_conferences:
             pattern = (
                 r"\b"
                 + r"\s+".join(re.escape(word) for word in norm_conf.split())
                 + r"\b"
             )
             if re.search(pattern, normalized_line):
-                outfile.write(f"{original_conf} -> {line}")
+                outfile.write(line)
                 break
 
 
