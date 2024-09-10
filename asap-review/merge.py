@@ -45,8 +45,8 @@ def main(dirs: list[Path], output_path: Path) -> None:
             content = safe_load_json(content_file)["metadata"]
             review = safe_load_json(review_file)["reviews"]
 
-            # We only want entries that have ratings in their reviews
-            if all("rating" in r for r in review):
+            # We only want entries that have ratings in their reviews and titles
+            if all("rating" in r for r in review) and content.get("title"):
                 output.append({"paper": content, "review": review, "source": dir.name})
 
     with output_path.open("w", encoding="utf-8") as f:
