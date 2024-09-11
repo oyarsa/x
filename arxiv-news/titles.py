@@ -9,6 +9,15 @@ class Paper:
     link: str
 
 
+BLOCKLIST_TOPICS = ("audio", "speech", "video", "modal", "memo", "visual")
+BLOCKLIST_LANGUGES = ("portuguese", "spanish", "french")
+BLOCKLIST_WORDS = BLOCKLIST_TOPICS + BLOCKLIST_LANGUGES
+
+
+def valid_title(title: str) -> bool:
+    return all(block_word not in title.lower() for block_word in BLOCKLIST_WORDS)
+
+
 def main() -> None:
     text = sys.stdin.read()
 
@@ -28,8 +37,11 @@ def main() -> None:
             link = f"https://arxiv.org/abs/{arxiv_id}"
             papers.append(Paper(title, link))
 
+    papers_filtered = [p for p in papers if valid_title(p.title)]
     print(len(papers), "papers found.")
-    for i, p in enumerate(papers, 1):
+    print(len(papers_filtered), "papers after filterng")
+
+    for i, p in enumerate(papers_filtered, 1):
         print(f"{i}. [{p.title}]({p.link})")
         if i % 10 == 0:
             print("\n---\n")
