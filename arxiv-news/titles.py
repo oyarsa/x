@@ -39,7 +39,7 @@ def main() -> None:
 
     papers_filtered = [p for p in papers if valid_title(p.title)]
     print(len(papers), "papers found.")
-    print(len(papers_filtered), "papers after filterng")
+    print(len(papers_filtered), "papers after filtering.")
 
     for i, p in enumerate(papers_filtered, 1):
         print(f"{i}. [{p.title}]({p.link})")
