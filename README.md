@@ -11,6 +11,7 @@ Experimental projects that don't fit anywhere else.
 - [s2orc](s2orc/README.md): Extract data from [Semantic Scholar's
   API](https://api.semanticscholar.org/api-docs/).
 - [random](random/README.md): Random code fragments that might or might not be useful.
+- [gitbackup](gitbackup/README.md): Backup all your GitHub repositories.
 
 ## License
 
