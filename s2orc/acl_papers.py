@@ -1,19 +1,15 @@
+"""Get matching papers from a list of venues. Saves as one big JSON.GZ file."""
+
 import argparse
 import gzip
 import json
-import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TextIO
 
 from tqdm import tqdm
 
-normalise_re = re.compile(r"[^a-z0-9\s]")
-
-
-def normalise_text(text: str) -> str:
-    """Remove non-alphanumeric characters and convert to lowercase."""
-    return normalise_re.sub("", text.lower()).strip()
+from match_venues import normalise_text
 
 
 def match_papers(

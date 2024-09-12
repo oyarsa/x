@@ -40,16 +40,19 @@ ACL_CONFERENCES = [
 # fmt: on
 
 
-def normalize_text(text: str) -> str:
+normalise_re = re.compile(r"[^a-z0-9\s]")
+
+
+def normalise_text(text: str) -> str:
     """Remove non-alphanumeric characters and convert to lowercase."""
-    return re.sub(r"[^a-z0-9\s]", "", text.lower())
+    return normalise_re.sub("", text.lower()).strip()
 
 
 def main(infile: TextIO, outfile: TextIO) -> None:
-    normalized_conferences = {normalize_text(conf) for conf in ACL_CONFERENCES}
+    normalized_conferences = {normalise_text(conf) for conf in ACL_CONFERENCES}
 
     for line in infile:
-        normalized_line = normalize_text(line.strip())
+        normalized_line = normalise_text(line.strip())
         for norm_conf in normalized_conferences:
             pattern = (
                 r"\b"
