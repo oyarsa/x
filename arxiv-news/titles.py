@@ -1,3 +1,8 @@
+"""Extract titles and links from arXiv newsletter text.
+
+The input text should come from the raw text from the newsletter email.
+"""
+
 import re
 import sys
 from dataclasses import dataclass
@@ -48,4 +53,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if "-h" in sys.argv or "--help" in sys.argv:
+        print("Usage: python titles.py < arxiv_newsletter.txt > titles.md\n")
+        print(__doc__)
+        sys.exit()
     main()
