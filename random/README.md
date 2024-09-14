@@ -15,3 +15,4 @@ Weird and random code fragments that might or might not be helpful some day.
 - [`gzjson.py`](gzjson.py): Demonstrate reading a JSON file that may be gzipped.
 - [`text_metrics.py`](text_metrics.py): Calculate similarity metrics (Exact Match, F1
   score, and ROUGE-L) between two strings.
+- [`keymatch.py`](keymatch.py): Find keys in a JSON file that match a given keyword.
