@@ -6,7 +6,7 @@ Markdown format.
 ## Usage
 
 ```sh
-$ python titles.py $URL
+$ uv run arxiv-news $URL
 ```
 
 Where `$URL` is the link to the raw email. In Fastmail, this can be found by clicking
@@ -15,7 +15,7 @@ on Actions > Show Raw Message. Copy the URL and paste it in the command above.
 If the email is long you can pipe to `less` (`-Rg` for colours and links):
 
 ```sh
-$ python titles.py $URL | less -Rg
+$ uv run arxiv-news $URL | less -Rg
 ```
 
 ## License
