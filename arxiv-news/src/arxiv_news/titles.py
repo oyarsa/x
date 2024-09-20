@@ -1,3 +1,10 @@
+"""Extract titles and links from an arXiv newsletter using the raw email URL.
+
+For long outputs, you can pipe the output to a pager like `less`:
+
+    $ uv run arxiv-news <URL> | less -Rg
+"""
+
 import argparse
 import re
 from dataclasses import dataclass
@@ -69,7 +76,7 @@ def display_markdown(markdown_content: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Extract titles and links from arXiv newsletter text."
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("url", help="URL of the arXiv newsletter")
     args = parser.parse_args()
