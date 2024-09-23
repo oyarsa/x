@@ -4,7 +4,6 @@ import argparse
 import ast
 import re
 import textwrap
-
 from pathlib import Path
 from typing import TextIO
 
@@ -38,6 +37,8 @@ def main(input_path: Path, output_file: TextIO) -> None:
     docstrings: dict[Path, str] = {}
 
     for file_path in input_path.rglob("*"):
+        if ".venv" in file_path.parts:
+            continue
         if file_path.suffix not in EXTRACT_FN:
             continue
         if docstring := EXTRACT_FN[file_path.suffix](file_path):
