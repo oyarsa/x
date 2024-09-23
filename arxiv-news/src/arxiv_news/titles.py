@@ -20,8 +20,36 @@ class Paper:
     link: str
 
 
-BLOCKLIST_TOPICS = ("audio", "speech", "video", "modal", "memo", "visual")
-BLOCKLIST_LANGUGES = ("portuguese", "spanish", "french")
+BLOCKLIST_TOPICS = (
+    "audio",
+    "bio",
+    "biology",
+    "chemical",
+    "chemistry",
+    "drug",
+    "memo",
+    "modal",
+    "molecule",
+    "mri",
+    "protein",
+    "speech",
+    "video",
+    "vision",
+    "visual",
+    "x-ray",
+)
+BLOCKLIST_LANGUGES = (
+    "basque",
+    "chinese",
+    "french",
+    "greek",
+    "hindi",
+    "indian",
+    "japanese",
+    "portuguese",
+    "romanian",
+    "spanish",
+)
 BLOCKLIST_WORDS = BLOCKLIST_TOPICS + BLOCKLIST_LANGUGES
 
 
