@@ -83,14 +83,16 @@ func main() {
 		fmt.Println("\nDates should be in YYYY-MM-DD format")
 		os.Exit(1)
 	}
+	startDateStr := os.Args[1]
+	endDateStr := os.Args[2]
 
-	startDate, err := time.Parse(time.DateOnly, os.Args[1])
+	startDate, err := time.Parse(time.DateOnly, startDateStr)
 	if err != nil {
 		fmt.Printf("Error parsing start date: %v\n", err)
 		os.Exit(1)
 	}
 
-	endDate, err := time.Parse(time.DateOnly, os.Args[2])
+	endDate, err := time.Parse(time.DateOnly, endDateStr)
 	if err != nil {
 		fmt.Printf("Error parsing end date: %v\n", err)
 		os.Exit(1)
@@ -104,6 +106,10 @@ func main() {
 	now := time.Now().UTC()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
+	fmt.Println("From :", startDateStr)
+	fmt.Println("To   :", endDateStr)
+	fmt.Println("Today:", today.Format(time.DateOnly))
+	fmt.Println()
 	fmt.Println(generateCalendar(today, startDate, endDate))
 	fmt.Println()
 	fmt.Println(getStatistics(today, startDate, endDate))
