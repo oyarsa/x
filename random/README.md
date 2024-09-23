@@ -6,6 +6,8 @@ Weird and random code fragments that might or might not be helpful some day.
 
 - [`countsymbols.go`](countsymbols.go): Count ASCII symbols in code files in a given
   directory.
+- [`keymatch.py`](keymatch.py): Find keys in JSON files that match a given keyword,
+  recursively.
 - [`markdown_word_counter.go`](markdown_word_counter.go): Count the most common words in
   a markdown file.
 - [`find_forelse.py`](find_forelse.py): Count occurences of for-else in Python files.
@@ -13,6 +15,6 @@ Weird and random code fragments that might or might not be helpful some day.
   Python and Go module docstrings.
 - [`argenum.py`](argenum.py): Use an Enum for argparse choices.
 - [`gzjson.py`](gzjson.py): Demonstrate reading a JSON file that may be gzipped.
+- [`scores.py`](scores.py): Extract values from the column of a markdown table.
 - [`text_metrics.py`](text_metrics.py): Calculate similarity metrics (Exact Match, F1
   score, and ROUGE-L) between two strings.
-- [`keymatch.py`](keymatch.py): Find keys in a JSON file that match a given keyword.
