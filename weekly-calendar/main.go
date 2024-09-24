@@ -68,9 +68,13 @@ func parseDate(s string) time.Time {
 }
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Println("Usage: calendar <start_date> <end_date>")
-		fmt.Println("\nDates should be in YYYY-MM-DD format")
+	if len(os.Args) != 3 || os.Args[1] == "-h" || os.Args[1] == "--help" {
+		fmt.Println(`Usage: calendar <start_date> <end_date>
+
+Show a calendar of the weeks between two dates. Dates should be in YYYY-MM-DD format.
+
+Options:
+  -h, --help    Display this help message`)
 		os.Exit(1)
 	}
 
