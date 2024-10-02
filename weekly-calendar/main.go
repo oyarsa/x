@@ -12,7 +12,8 @@ const (
 	reset     = "\033[0m"
 )
 
-func generateCalendar(today, start, end time.Time) string {
+// generateCalendar creates a slice of strings representing each week in the calendar.
+func generateCalendar(today, start, end time.Time) []string {
 	var calendar []string
 	for current := start; !current.After(end); current = current.AddDate(0, 0, 7) {
 		week := make([]string, 7)
@@ -34,6 +35,7 @@ func generateCalendar(today, start, end time.Time) string {
 		}
 
 		weekStr := weekStart.Format("Jan 02 ") + strings.Join(week, " ")
+		// Apply underline to the week containing today
 		if weekStart.AddDate(0, 0, 7).After(today) && !weekStart.After(today) {
 			weekStr = underline + weekStr + reset
 		}
@@ -42,6 +44,7 @@ func generateCalendar(today, start, end time.Time) string {
 	return strings.Join(calendar, "\n")
 }
 
+// getStatistics calculates and returns the statistics string.
 func getStatistics(today, start, end time.Time) string {
 	totalDays := int(end.Sub(start).Hours()/24) + 1
 	daysPassed := min(int(today.Sub(start).Hours()/24)+1, totalDays)
@@ -58,6 +61,7 @@ func getStatistics(today, start, end time.Time) string {
 	)
 }
 
+// parseDate parses a date string in YYYY-MM-DD format.
 func parseDate(s string) time.Time {
 	t, err := time.Parse(time.DateOnly, s)
 	if err != nil {
