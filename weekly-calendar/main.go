@@ -1,14 +1,17 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const (
 	underline = "\033[4m"
+	bold      = "\033[1m"
 	reset     = "\033[0m"
 )
 
@@ -41,7 +44,7 @@ func generateCalendar(today, start, end time.Time) []string {
 		}
 		calendar = append(calendar, weekStr)
 	}
-	return strings.Join(calendar, "\n")
+	return calendar
 }
 
 // getStatistics calculates and returns the statistics string.
@@ -63,26 +66,57 @@ func getStatistics(today, start, end time.Time) string {
 
 // parseDate parses a date string in YYYY-MM-DD format.
 func parseDate(s string) time.Time {
-	t, err := time.Parse(time.DateOnly, s)
+	t, err := time.Parse("2006-01-02", s)
 	if err != nil {
-		fmt.Printf("Error parsing date: %v\n", err)
+		fmt.Printf("Error parsing date '%s': %v\n", s, err)
 		os.Exit(1)
 	}
 	return t
 }
 
-func main() {
-	if len(os.Args) != 3 || os.Args[1] == "-h" || os.Args[1] == "--help" {
-		fmt.Println(`Usage: calendar <start_date> <end_date>
+// readTodoList reads the todo list from the specified file path.
+func readTodoList(path string) ([]string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("Error reading todo file '%s': %w\n", path, err)
+	}
 
-Show a calendar of the weeks between two dates. Dates should be in YYYY-MM-DD format.
+	lines := []string{}
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimRightFunc(line, unicode.IsSpace)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+
+	return lines, nil
+}
+
+func main() {
+	todoPath := flag.String("todo", "", "Path to the todo list file")
+
+	flag.Usage = func() {
+		fmt.Println(`Usage: weekly-calendar [options] <start_date> <end_date>
+
+Show a calendar of the weeks between two dates along with a todo list. Dates should be in YYYY-MM-DD format.
 
 Options:
-  -h, --help    Display this help message`)
+  --todo string
+        Path to the todo list file (default "todo.txt")
+  -h, --help
+        Display this help message`)
+
+		os.Exit(0)
+	}
+	flag.Parse()
+
+	if flag.NArg() != 2 {
+		fmt.Println("Error: Please provide start and end dates in YYYY-MM-DD format.")
+		fmt.Println("Use -h or --help for usage information.")
 		os.Exit(1)
 	}
 
-	start, end := parseDate(os.Args[1]), parseDate(os.Args[2])
+	start, end := parseDate(flag.Arg(0)), parseDate(flag.Arg(1))
 	if start.After(end) {
 		fmt.Println("Error: End date must be after start date.")
 		os.Exit(1)
@@ -90,11 +124,28 @@ Options:
 
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 
-	fmt.Println("From :", start.Format(time.DateOnly))
-	fmt.Println("To   :", end.Format(time.DateOnly))
-	fmt.Println("Today:", today.Format(time.DateOnly))
-	fmt.Println()
-	fmt.Println(generateCalendar(today, start, end))
+	fmt.Println(bold + underline + "Weekly Calendar:" + reset)
+	fmt.Printf("From : %s\n", start.Format("2006-01-02"))
+	fmt.Printf("To   : %s\n", end.Format("2006-01-02"))
+	fmt.Printf("Today: %s\n\n", today.Format("2006-01-02"))
+
+	calendar := generateCalendar(today, start, end)
+	for _, line := range calendar {
+		fmt.Println(line)
+	}
 	fmt.Println()
 	fmt.Println(getStatistics(today, start, end))
+
+	if *todoPath != "" {
+		todos, err := readTodoList(*todoPath)
+		if err != nil {
+			fmt.Printf("Error reading todo file '%s': %v\n", *todoPath, err)
+			os.Exit(1)
+		}
+
+		fmt.Println(bold + underline + "\nTodo List:" + reset)
+		for _, todo := range todos {
+			fmt.Println(todo)
+		}
+	}
 }
