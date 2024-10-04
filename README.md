@@ -12,6 +12,8 @@ Experimental projects that don't fit anywhere else.
   two dates.
 - [zincmind](zincmind/README.md): Extract data from the
   [Coppermind](https://coppermind.net/wiki/Main_Page) wiki and convert to Markdown.
+- [imgexp](imgexp/README.md): Experiment on how image transformations affect similarity.
+
 
 
 ## Archive
