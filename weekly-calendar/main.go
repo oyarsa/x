@@ -15,8 +15,14 @@ const (
 	reset     = "\033[0m"
 )
 
+// isVacationDay checks if a given day is within the vacation period.
+func isVacationDay(day, vacationStart, vacationEnd time.Time) bool {
+	return !day.Before(vacationStart) && !day.After(vacationEnd)
+}
+
 // generateCalendar creates a slice of strings representing each week in the calendar.
-func generateCalendar(today, start, end time.Time) []string {
+// It excludes vacation days from highlighting and does not count them in the calendar.
+func generateCalendar(today, start, end time.Time, vacationStart, vacationEnd *time.Time) []string {
 	var calendar []string
 	for current := start; !current.After(end); current = current.AddDate(0, 0, 7) {
 		week := make([]string, 7)
@@ -25,6 +31,12 @@ func generateCalendar(today, start, end time.Time) []string {
 
 		for i := range week {
 			day := weekStart.AddDate(0, 0, i)
+			// Check if the day is within the vacation period
+			if vacationStart != nil && vacationEnd != nil &&
+				isVacationDay(day, *vacationStart, *vacationEnd) {
+				week[i] = "V" // Represent vacation days with "V"
+				continue
+			}
 			switch {
 			case day.Before(start) || day.After(end):
 				week[i] = "·"
@@ -38,21 +50,47 @@ func generateCalendar(today, start, end time.Time) []string {
 		}
 
 		weekStr := weekStart.Format("Jan 02 ") + strings.Join(week, " ")
-		// Apply underline to the week containing today
-		if weekStart.AddDate(0, 0, 7).After(today) && !weekStart.After(today) {
-			weekStr = underline + weekStr + reset
+		// Apply underline to the week containing today, excluding vacation weeks
+		if vacationStart != nil && vacationEnd != nil {
+			if weekStart.AddDate(0, 0, 7).After(today) && !weekStart.After(today) &&
+				!isVacationDay(weekStart, *vacationStart, *vacationEnd) &&
+				!isVacationDay(weekStart.AddDate(0, 0, 6), *vacationStart, *vacationEnd) {
+				weekStr = underline + weekStr + reset
+			}
+		} else {
+			if weekStart.AddDate(0, 0, 7).After(today) && !weekStart.After(today) {
+				weekStr = underline + weekStr + reset
+			}
 		}
 		calendar = append(calendar, weekStr)
 	}
 	return calendar
 }
 
-// getStatistics calculates and returns the statistics string.
-func getStatistics(today, start, end time.Time) string {
-	totalDays := int(end.Sub(start).Hours()/24) + 1
-	daysPassed := min(int(today.Sub(start).Hours()/24)+1, totalDays)
-	daysRemaining := max(int(end.Sub(today).Hours()/24), 0)
-	percentage := float64(daysPassed) / float64(totalDays)
+// getStatistics calculates and returns the statistics string, excluding vacation days.
+func getStatistics(today, start, end time.Time, vacationStart, vacationEnd *time.Time) string {
+	totalDays := 0
+	daysPassed := 0
+	daysRemaining := 0
+
+	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
+		// Skip vacation days
+		if vacationStart != nil && vacationEnd != nil &&
+			isVacationDay(day, *vacationStart, *vacationEnd) {
+			continue
+		}
+		totalDays++
+		if !day.After(today) {
+			daysPassed++
+		} else {
+			daysRemaining++
+		}
+	}
+
+	percentage := 0.0
+	if totalDays > 0 {
+		percentage = float64(daysPassed) / float64(totalDays)
+	}
 
 	return fmt.Sprintf(
 		"Days passed:    %3d (%.2f%%)\n"+
@@ -94,6 +132,12 @@ func readTodoList(path string) ([]string, error) {
 
 func main() {
 	todoPath := flag.String("todo", "", "Path to the todo list file")
+	vacationStartStr := flag.String(
+		"vacation-start",
+		"",
+		"Start date of vacation in YYYY-MM-DD format",
+	)
+	vacationEndStr := flag.String("vacation-end", "", "End date of vacation in YYYY-MM-DD format")
 
 	flag.Usage = func() {
 		fmt.Println(`Usage: weekly-calendar [options] <start_date> <end_date>
@@ -102,10 +146,13 @@ Show a calendar of the weeks between two dates along with a todo list. Dates sho
 
 Options:
   --todo string
-        Path to the todo list file (default "todo.txt")
+        Path to the todo list file (default "")
+  --vacation-start string
+        Start date of vacation in YYYY-MM-DD format
+  --vacation-end string
+        End date of vacation in YYYY-MM-DD format
   -h, --help
         Display this help message`)
-
 		os.Exit(0)
 	}
 	flag.Parse()
@@ -122,6 +169,28 @@ Options:
 		os.Exit(1)
 	}
 
+	var vacationStart, vacationEnd *time.Time
+	if (*vacationStartStr != "" && *vacationEndStr == "") ||
+		(*vacationStartStr == "" && *vacationEndStr != "") {
+		fmt.Println("Error: Both --vacation-start and --vacation-end must be provided together.")
+		os.Exit(1)
+	}
+	if *vacationStartStr != "" && *vacationEndStr != "" {
+		vStart := parseDate(*vacationStartStr)
+		vEnd := parseDate(*vacationEndStr)
+		if vStart.After(vEnd) {
+			fmt.Println("Error: Vacation start date must be before or equal to vacation end date.")
+			os.Exit(1)
+		}
+		// Ensure vacation is within the start and end dates
+		if vStart.Before(start) || vEnd.After(end) {
+			fmt.Println("Error: Vacation period must be within the start and end dates.")
+			os.Exit(1)
+		}
+		vacationStart = &vStart
+		vacationEnd = &vEnd
+	}
+
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 
 	fmt.Println(bold + underline + "Weekly Calendar:" + reset)
@@ -129,12 +198,12 @@ Options:
 	fmt.Printf("To   : %s\n", end.Format("2006-01-02"))
 	fmt.Printf("Today: %s\n\n", today.Format("2006-01-02"))
 
-	calendar := generateCalendar(today, start, end)
+	calendar := generateCalendar(today, start, end, vacationStart, vacationEnd)
 	for _, line := range calendar {
 		fmt.Println(line)
 	}
 	fmt.Println()
-	fmt.Println(getStatistics(today, start, end))
+	fmt.Println(getStatistics(today, start, end, vacationStart, vacationEnd))
 
 	if *todoPath != "" {
 		todos, err := readTodoList(*todoPath)
