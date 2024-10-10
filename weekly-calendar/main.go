@@ -22,7 +22,7 @@ func isVacationDay(day, vacationStart, vacationEnd time.Time) bool {
 
 // generateCalendar creates a slice of strings representing each week in the calendar.
 // It excludes vacation days from highlighting and does not count them in the calendar.
-func generateCalendar(today, start, end time.Time, vacationStart, vacationEnd *time.Time) []string {
+func generateCalendar(today, start, end, vacationStart, vacationEnd time.Time) []string {
 	var calendar []string
 	for current := start; !current.After(end); current = current.AddDate(0, 0, 7) {
 		week := make([]string, 7)
@@ -32,8 +32,8 @@ func generateCalendar(today, start, end time.Time, vacationStart, vacationEnd *t
 		for i := range week {
 			day := weekStart.AddDate(0, 0, i)
 			// Check if the day is within the vacation period
-			if vacationStart != nil && vacationEnd != nil &&
-				isVacationDay(day, *vacationStart, *vacationEnd) {
+			if !vacationStart.IsZero() && !vacationEnd.IsZero() &&
+				isVacationDay(day, vacationStart, vacationEnd) {
 				week[i] = "V" // Represent vacation days with "V"
 				continue
 			}
@@ -51,10 +51,10 @@ func generateCalendar(today, start, end time.Time, vacationStart, vacationEnd *t
 
 		weekStr := weekStart.Format("Jan 02 ") + strings.Join(week, " ")
 		// Apply underline to the week containing today, excluding vacation weeks
-		if vacationStart != nil && vacationEnd != nil {
+		if !vacationStart.IsZero() && !vacationEnd.IsZero() {
 			if weekStart.AddDate(0, 0, 7).After(today) && !weekStart.After(today) &&
-				!isVacationDay(weekStart, *vacationStart, *vacationEnd) &&
-				!isVacationDay(weekStart.AddDate(0, 0, 6), *vacationStart, *vacationEnd) {
+				!isVacationDay(weekStart, vacationStart, vacationEnd) &&
+				!isVacationDay(weekStart.AddDate(0, 0, 6), vacationStart, vacationEnd) {
 				weekStr = underline + weekStr + reset
 			}
 		} else {
@@ -68,15 +68,15 @@ func generateCalendar(today, start, end time.Time, vacationStart, vacationEnd *t
 }
 
 // getStatistics calculates and returns the statistics string, excluding vacation days.
-func getStatistics(today, start, end time.Time, vacationStart, vacationEnd *time.Time) string {
+func getStatistics(today, start, end, vacationStart, vacationEnd time.Time) string {
 	totalDays := 0
 	daysPassed := 0
 	daysRemaining := 0
 
 	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
 		// Skip vacation days
-		if vacationStart != nil && vacationEnd != nil &&
-			isVacationDay(day, *vacationStart, *vacationEnd) {
+		if !vacationStart.IsZero() && !vacationEnd.IsZero() &&
+			isVacationDay(day, vacationStart, vacationEnd) {
 			continue
 		}
 		totalDays++
@@ -169,26 +169,24 @@ Options:
 		os.Exit(1)
 	}
 
-	var vacationStart, vacationEnd *time.Time
+	var vacationStart, vacationEnd time.Time
 	if (*vacationStartStr != "" && *vacationEndStr == "") ||
 		(*vacationStartStr == "" && *vacationEndStr != "") {
 		fmt.Println("Error: Both --vacation-start and --vacation-end must be provided together.")
 		os.Exit(1)
 	}
 	if *vacationStartStr != "" && *vacationEndStr != "" {
-		vStart := parseDate(*vacationStartStr)
-		vEnd := parseDate(*vacationEndStr)
-		if vStart.After(vEnd) {
+		vacationStart = parseDate(*vacationStartStr)
+		vacationEnd = parseDate(*vacationEndStr)
+		if vacationStart.After(vacationEnd) {
 			fmt.Println("Error: Vacation start date must be before or equal to vacation end date.")
 			os.Exit(1)
 		}
 		// Ensure vacation is within the start and end dates
-		if vStart.Before(start) || vEnd.After(end) {
+		if vacationStart.Before(start) || vacationEnd.After(end) {
 			fmt.Println("Error: Vacation period must be within the start and end dates.")
 			os.Exit(1)
 		}
-		vacationStart = &vStart
-		vacationEnd = &vEnd
 	}
 
 	today := time.Now().UTC().Truncate(24 * time.Hour)
