@@ -196,6 +196,16 @@ Options:
 	fmt.Printf("To   : %s\n", end.Format("2006-01-02"))
 	fmt.Printf("Today: %s\n\n", today.Format("2006-01-02"))
 
+	// Add Vacations section if vacation dates are provided
+	if !vacationStart.IsZero() && !vacationEnd.IsZero() {
+		fmt.Println(underline + "Vacations:" + reset)
+		fmt.Printf(
+			"- %s to %s\n\n",
+			vacationStart.Format("2006-01-02"),
+			vacationEnd.Format("2006-01-02"),
+		)
+	}
+
 	calendar := generateCalendar(today, start, end, vacationStart, vacationEnd)
 	for _, line := range calendar {
 		fmt.Println(line)
