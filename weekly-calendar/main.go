@@ -122,12 +122,10 @@ func readTodoList(path string, maxLines int) ([]string, error) {
 	lines := []string{}
 	for _, line := range strings.Split(string(content), "\n") {
 		line = strings.TrimRightFunc(line, unicode.IsSpace)
-		if line != "" {
-			lines = append(lines, line)
+		lines = append(lines, line)
 
-			if len(lines) == maxLines {
-				break
-			}
+		if len(lines) == maxLines {
+			break
 		}
 	}
 
@@ -142,7 +140,7 @@ func main() {
 		"Start date of vacation in YYYY-MM-DD format",
 	)
 	vacationEndStr := flag.String("vacation-end", "", "End date of vacation in YYYY-MM-DD format")
-	maxLines := flag.Int("max-lines", 10, "Maximum number of non-empty lines to print from TODO")
+	maxLines := flag.Int("max-lines", 10, "Maximum number of lines to print from TODO")
 
 	flag.Usage = func() {
 		fmt.Println(`Usage: weekly-calendar [options] <start_date> <end_date>
@@ -157,7 +155,7 @@ Options:
   --vacation-end string
         End date of vacation in YYYY-MM-DD format
   --max-lines int
-        Maximum number of non-empty lines to print from TODO (default 10)
+        Maximum number of lines to print from TODO (default 10)
   -h, --help
         Display this help message`)
 		os.Exit(0)
