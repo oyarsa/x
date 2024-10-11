@@ -113,7 +113,7 @@ func parseDate(s string) time.Time {
 }
 
 // readTodoList reads the todo list from the specified file path.
-func readTodoList(path string) ([]string, error) {
+func readTodoList(path string, maxLines int) ([]string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading todo file '%s': %w\n", path, err)
@@ -124,6 +124,10 @@ func readTodoList(path string) ([]string, error) {
 		line = strings.TrimRightFunc(line, unicode.IsSpace)
 		if line != "" {
 			lines = append(lines, line)
+
+			if len(lines) == maxLines {
+				break
+			}
 		}
 	}
 
@@ -138,6 +142,7 @@ func main() {
 		"Start date of vacation in YYYY-MM-DD format",
 	)
 	vacationEndStr := flag.String("vacation-end", "", "End date of vacation in YYYY-MM-DD format")
+	maxLines := flag.Int("max-lines", 10, "Maximum number of non-empty lines to print from TODO")
 
 	flag.Usage = func() {
 		fmt.Println(`Usage: weekly-calendar [options] <start_date> <end_date>
@@ -151,6 +156,8 @@ Options:
         Start date of vacation in YYYY-MM-DD format
   --vacation-end string
         End date of vacation in YYYY-MM-DD format
+  --max-lines int
+        Maximum number of non-empty lines to print from TODO (default 10)
   -h, --help
         Display this help message`)
 		os.Exit(0)
@@ -214,7 +221,7 @@ Options:
 	fmt.Println(getStatistics(today, start, end, vacationStart, vacationEnd))
 
 	if *todoPath != "" {
-		todos, err := readTodoList(*todoPath)
+		todos, err := readTodoList(*todoPath, *maxLines)
 		if err != nil {
 			fmt.Printf("Error reading todo file '%s': %v\n", *todoPath, err)
 			os.Exit(1)
