@@ -133,14 +133,10 @@ func readTodoList(path string, maxLines int) ([]string, error) {
 }
 
 func main() {
-	todoPath := flag.String("todo", "", "Path to the todo list file")
-	vacationStartStr := flag.String(
-		"vacation-start",
-		"",
-		"Start date of vacation in YYYY-MM-DD format",
-	)
-	vacationEndStr := flag.String("vacation-end", "", "End date of vacation in YYYY-MM-DD format")
-	maxLines := flag.Int("max-lines", 10, "Maximum number of lines to print from TODO")
+	todoPath := flag.String("todo", "", "")
+	vacationStartStr := flag.String("vacation-start", "", "")
+	vacationEndStr := flag.String("vacation-end", "", "")
+	maxLines := flag.Int("max-lines", 10, "")
 
 	flag.Usage = func() {
 		fmt.Println(`Usage: weekly-calendar [options] <start_date> <end_date>
