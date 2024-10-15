@@ -53,17 +53,17 @@ BLOCKLIST_LANGUGES = (
 BLOCKLIST_WORDS = BLOCKLIST_TOPICS + BLOCKLIST_LANGUGES
 
 
-def valid_title(title: str) -> bool:
+def _valid_title(title: str) -> bool:
     return all(block_word not in title.lower() for block_word in BLOCKLIST_WORDS)
 
 
-def fetch_content(url: str) -> str:
+def _fetch_content(url: str) -> str:
     response = requests.get(url)
     response.raise_for_status()
     return response.text
 
 
-def extract_papers(text: str) -> list[Paper]:
+def _extract_papers(text: str) -> list[Paper]:
     paper_parts = re.split(r"\n\\\\", text)
     papers: list[Paper] = []
 
@@ -81,8 +81,8 @@ def extract_papers(text: str) -> list[Paper]:
     return papers
 
 
-def generate_markdown(papers: list[Paper]) -> str:
-    papers_valid = [p for p in papers if valid_title(p.title)]
+def _generate_markdown(papers: list[Paper]) -> str:
+    papers_valid = [p for p in papers if _valid_title(p.title)]
 
     markdown_content = "# arXiv Papers\n\n"
     markdown_content += f"Total papers found: {len(papers)}\n\n"
@@ -96,7 +96,7 @@ def generate_markdown(papers: list[Paper]) -> str:
     return markdown_content
 
 
-def display_markdown(markdown_content: str) -> None:
+def _display_markdown(markdown_content: str) -> None:
     console = Console(force_terminal=True)
     md = Markdown(markdown_content)
     console.print(md)
@@ -109,10 +109,10 @@ def main() -> None:
     parser.add_argument("url", help="URL of the arXiv newsletter")
     args = parser.parse_args()
 
-    content = fetch_content(args.url)
-    papers = extract_papers(content)
-    markdown_content = generate_markdown(papers)
-    display_markdown(markdown_content)
+    content = _fetch_content(args.url)
+    papers = _extract_papers(content)
+    markdown_content = _generate_markdown(papers)
+    _display_markdown(markdown_content)
 
 
 if __name__ == "__main__":
