@@ -7,6 +7,7 @@ For long outputs, you can pipe the output to a pager like `less`:
 
 import argparse
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import requests
@@ -51,6 +52,11 @@ BLOCKLIST_LANGUGES = (
     "spanish",
 )
 BLOCKLIST_WORDS = BLOCKLIST_TOPICS + BLOCKLIST_LANGUGES
+HIGHLIGHT_TOPICS = [
+    "know",
+    "graph",
+    "sci",
+]
 
 
 def _valid_title(title: str) -> bool:
@@ -81,19 +87,38 @@ def _extract_papers(text: str) -> list[Paper]:
     return papers
 
 
-def _generate_markdown(papers: list[Paper]) -> str:
-    papers_valid = [p for p in papers if _valid_title(p.title)]
+def _has_highlight(title: str) -> bool:
+    return any(topic in title.casefold() for topic in HIGHLIGHT_TOPICS)
 
-    markdown_content = "# arXiv Papers\n\n"
-    markdown_content += f"Total papers found: {len(papers)}\n\n"
-    markdown_content += f"Papers after filtering: {len(papers_valid)}\n\n"
 
-    for i, p in enumerate(papers_valid, 1):
-        markdown_content += f"{i}. [{p.title}]({p.link})\n"
+def _display_papers(papers: Sequence[Paper]) -> str:
+    content: list[str] = []
+
+    for i, p in enumerate(papers, 1):
+        content.append(f"{i}. [{p.title}]({p.link})")
         if i % 10 == 0:
-            markdown_content += "\n---\n\n"
+            content.append("\n---\n")
 
-    return markdown_content
+    return "\n".join(content)
+
+
+def _generate_markdown(papers: Sequence[Paper]) -> str:
+    papers_valid = [p for p in papers if _valid_title(p.title)]
+    papers_highlighted = [p for p in papers_valid if _has_highlight(p.title)]
+    papers_regular = [p for p in papers_valid if not _has_highlight(p.title)]
+
+    markdown_content = [
+        "# arXiv Papers",
+        f"Total papers found: {len(papers)}\n",
+        f"Papers after filtering: {len(papers_valid)}\n",
+        f"Papers with highlights: {len(papers_highlighted)}",
+        "## Highlighted papers",
+        _display_papers(papers_highlighted),
+        "## Other papers",
+        _display_papers(papers_regular),
+    ]
+
+    return "\n".join(markdown_content)
 
 
 def _display_markdown(markdown_content: str) -> None:
