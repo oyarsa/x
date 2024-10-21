@@ -1,4 +1,4 @@
-"""Summarises functions and classes signatures in a Python file, including docstrings.
+"""Summarise functions and classes signatures in a Python file, including docstrings.
 
 The output is syntax-highlighted with pygments (through rich).
 """
