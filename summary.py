@@ -1,7 +1,7 @@
 """Analyses Python files to extract function/class signatures and docstrings."""
 
 import ast
-import shutil
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
 
@@ -15,7 +15,7 @@ def extract_signature(
 ) -> str:
     """Extract the signature of a function or class definition."""
     if isinstance(node, ast.ClassDef):
-        return f"class {node.name}"
+        return f"class {node.name}:"
 
     args: list[str] = []
 
@@ -34,7 +34,7 @@ def extract_signature(
     returns = f" -> {ast.unparse(node.returns)}" if node.returns else ""
 
     prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
-    return f"{prefix} {node.name}({', '.join(args)}){returns}"
+    return f"{prefix} {node.name}({', '.join(args)}){returns}:"
 
 
 def get_first_docstring_line(
@@ -48,16 +48,16 @@ def get_first_docstring_line(
 INDENT = " " * 4
 
 
-def analyse_file(file_path: Path) -> list[ConsoleRenderable]:
+def analyse_file(file_path: Path) -> list[ConsoleRenderable | str]:
     """Analyse a Python file and return its structure as rich renderables."""
     with file_path.open("r", encoding="utf-8") as file:
         tree = ast.parse(file.read())
 
-    output: list[ConsoleRenderable] = []
+    output: list[ConsoleRenderable | str] = []
 
     module_docstring = get_first_docstring_line(tree)
     output.append(module_docstring)
-    output.append("")
+    output.append("\n")
 
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
@@ -65,23 +65,25 @@ def analyse_file(file_path: Path) -> list[ConsoleRenderable]:
                 continue
 
             signature = extract_signature(node)
-            output.append(Syntax(signature, "python", theme="monokai"))
+            output.append(syntax(signature))
             docstring = get_first_docstring_line(node)
             output.append(f"{INDENT}{docstring}")
-            output.append("")
+            output.append("\n")
 
         if isinstance(node, ast.ClassDef):
             for class_node in ast.iter_child_nodes(node):
                 if isinstance(class_node, ast.FunctionDef | ast.AsyncFunctionDef):
                     signature = extract_signature(class_node)
-                    output.append(
-                        Syntax(f"{INDENT}{signature}", "python", theme="monokai")
-                    )
+                    output.append(syntax(f"{INDENT}{signature}"))
                     docstring = get_first_docstring_line(class_node)
                     output.append(f"{INDENT*2}{docstring}")
-                    output.append("")
+                    output.append("\n")
 
     return output
+
+
+def syntax(text: str) -> Syntax:
+    return Syntax(text, "python", theme="one-dark")
 
 
 app = typer.Typer(
@@ -109,21 +111,9 @@ def main(
     echo(analyse_file(path))
 
 
-def echo(renderables: list[ConsoleRenderable]) -> None:
-    console = Console()
-    _, terminal_height = shutil.get_terminal_size()
-
-    # Estimate the number of lines
-    with console.capture() as capture:
-        console.print(*renderables)
-    text = capture.get()
-    text_lines = text.count("\n") + 1
-
-    if text_lines > terminal_height:
-        with console.pager():
-            console.print(*renderables)
-    else:
-        console.print(*renderables)
+def echo(renderables: Sequence[ConsoleRenderable | str]) -> None:
+    console = Console(color_system="truecolor")
+    console.print(*renderables)
 
 
 if __name__ == "__main__":
