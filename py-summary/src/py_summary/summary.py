@@ -48,17 +48,14 @@ def process_file(file_path: Path, syntax_theme: str) -> list[RenderableType]:
     output: list[RenderableType | str] = []
 
     module_docstring = get_docstring_summary(module)
-    output.append(module_docstring)
-    output.append("\n")
+    output += [module_docstring, "\n"]
 
     for node in ast.iter_child_nodes(module):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             signature = extract_signature(node)
             docstring = get_docstring_summary(node)
 
-            output.append(syntax(signature, syntax_theme))
-            output.append(f"{INDENT}{docstring}")
-            output.append("\n")
+            output += [syntax(signature, syntax_theme), f"{INDENT}{docstring}", "\n"]
 
         if isinstance(node, ast.ClassDef):
             for class_node in ast.iter_child_nodes(node):
@@ -66,9 +63,11 @@ def process_file(file_path: Path, syntax_theme: str) -> list[RenderableType]:
                     signature = extract_signature(class_node)
                     docstring = get_docstring_summary(class_node)
 
-                    output.append(syntax(f"{INDENT}{signature}", syntax_theme))
-                    output.append(f"{INDENT*2}{docstring}")
-                    output.append("\n")
+                    output += [
+                        syntax(f"{INDENT}{signature}", syntax_theme),
+                        f"{INDENT*2}{docstring}",
+                        "\n",
+                    ]
 
     return output
 
@@ -88,10 +87,7 @@ def extract_signature(
     if isinstance(node, ast.ClassDef):
         return f"class {node.name}:"
 
-    args: list[str] = []
-
-    for arg in node.args.args:
-        args.append(f"{arg.arg}: {get_annotation(arg)}")
+    args = [f"{arg.arg}: {get_annotation(arg)}" for arg in node.args.args]
 
     if node.args.vararg:
         args.append(f"*{node.args.vararg.arg}: {get_annotation(node.args.vararg)}")
