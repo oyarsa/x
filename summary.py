@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.console import Console, ConsoleRenderable
+from rich.syntax import Syntax
 
 
 def extract_signature(
@@ -54,7 +56,8 @@ def analyse_file(file_path: Path) -> list[ConsoleRenderable]:
     output: list[ConsoleRenderable] = []
 
     module_docstring = get_first_docstring_line(tree)
-    output.append(f"{module_docstring}\n")
+    output.append(Syntax(module_docstring, "python", theme="monokai"))
+    output.append("")
 
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
@@ -62,9 +65,10 @@ def analyse_file(file_path: Path) -> list[ConsoleRenderable]:
                 continue
 
             signature = extract_signature(node)
-            output.append(f"{signature}")
+            output.append(Syntax(signature, "python", theme="monokai"))
             docstring = get_first_docstring_line(node)
-            output.append(f"{INDENT}{docstring}\n")
+            output.append(Syntax(f"{INDENT}{docstring}", "python", theme="monokai"))
+            output.append("")
 
         if isinstance(node, ast.ClassDef):
             for class_node in ast.iter_child_nodes(node):
@@ -79,7 +83,7 @@ def analyse_file(file_path: Path) -> list[ConsoleRenderable]:
                     )
                     output.append("")
 
-    return "\n".join(output)
+    return output
 
 
 app = typer.Typer(
@@ -118,9 +122,10 @@ def echo(renderables: list[ConsoleRenderable]) -> None:
     text_lines = text.count("\n") + 1
 
     if text_lines > terminal_height:
-        typer.echo_via_pager(text)
+        with console.pager():
+            console.print(*renderables)
     else:
-        typer.echo(text)
+        console.print(*renderables)
 
 
 if __name__ == "__main__":
