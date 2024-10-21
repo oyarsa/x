@@ -1,7 +1,7 @@
-"""Analyzes Python files to extract function/class signatures and docstrings."""
+"""Analyses Python files to extract function/class signatures and docstrings."""
 
 import ast
-import sys
+import shutil
 from pathlib import Path
 from typing import Annotated
 
@@ -16,6 +16,7 @@ def extract_signature(
         return f"class {node.name}"
 
     args: list[str] = []
+
     for arg in node.args.args:
         arg_str = arg.arg
         if arg.annotation:
@@ -39,31 +40,41 @@ def get_first_docstring_line(
 ) -> str:
     """Get the first line of a node's docstring, if it exists."""
     docstring = ast.get_docstring(node)
-    return docstring.split("\n")[0] if docstring else "No docstring"
+    return docstring.split("\n")[0] if docstring else "..."
 
 
-def analyse_file(file_path: Path) -> None:
+INDENT = " " * 4
+
+
+def analyse_file(file_path: Path) -> str:
     """Analyse a Python file and print its structure."""
     with file_path.open("r", encoding="utf-8") as file:
         tree = ast.parse(file.read())
 
+    output: list[str] = []
+
     module_docstring = get_first_docstring_line(tree)
-    print(f"Module docstring: {module_docstring}\n")
+    output.append(f"{module_docstring}\n")
 
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            if node.name == "main":
+                continue
+
             signature = extract_signature(node)
+            output.append(f"{signature}")
             docstring = get_first_docstring_line(node)
-            print(f"{signature}")
-            print(f"    {docstring}\n")
+            output.append(f"{INDENT}{docstring}\n")
 
         if isinstance(node, ast.ClassDef):
             for class_node in ast.iter_child_nodes(node):
                 if isinstance(class_node, ast.FunctionDef | ast.AsyncFunctionDef):
                     signature = extract_signature(class_node)
+                    output.append(f"{INDENT}{signature}")
                     docstring = get_first_docstring_line(class_node)
-                    print(f"    {signature}")
-                    print(f"        {docstring}\n")
+                    output.append(f"{INDENT*2}{docstring}\n")
+
+    return "\n".join(output)
 
 
 app = typer.Typer(
@@ -85,10 +96,20 @@ def main(
     path = Path(file_path)
 
     if path.suffix != ".py":
-        print(f"Error: '{file_path}' is not a Python file.")
-        sys.exit(1)
+        typer.echo(f"Error: '{file_path}' is not a Python file.", err=True)
+        raise typer.Abort()
 
-    analyse_file(path)
+    echo(analyse_file(path))
+
+
+def echo(text: str) -> None:
+    _, terminal_height = shutil.get_terminal_size()
+    text_lines = text.count("\n") + 1
+
+    if text_lines > terminal_height:
+        typer.echo_via_pager(text)
+    else:
+        typer.echo(text)
 
 
 if __name__ == "__main__":
