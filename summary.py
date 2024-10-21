@@ -46,12 +46,12 @@ def get_first_docstring_line(
 INDENT = " " * 4
 
 
-def analyse_file(file_path: Path) -> str:
-    """Analyse a Python file and print its structure."""
+def analyse_file(file_path: Path) -> list[ConsoleRenderable]:
+    """Analyse a Python file and return its structure as rich renderables."""
     with file_path.open("r", encoding="utf-8") as file:
         tree = ast.parse(file.read())
 
-    output: list[str] = []
+    output: list[ConsoleRenderable] = []
 
     module_docstring = get_first_docstring_line(tree)
     output.append(f"{module_docstring}\n")
@@ -70,9 +70,14 @@ def analyse_file(file_path: Path) -> str:
             for class_node in ast.iter_child_nodes(node):
                 if isinstance(class_node, ast.FunctionDef | ast.AsyncFunctionDef):
                     signature = extract_signature(class_node)
-                    output.append(f"{INDENT}{signature}")
+                    output.append(
+                        Syntax(f"{INDENT}{signature}", "python", theme="monokai")
+                    )
                     docstring = get_first_docstring_line(class_node)
-                    output.append(f"{INDENT*2}{docstring}\n")
+                    output.append(
+                        Syntax(f"{INDENT*2}{docstring}", "python", theme="monokai")
+                    )
+                    output.append("")
 
     return "\n".join(output)
 
@@ -102,8 +107,14 @@ def main(
     echo(analyse_file(path))
 
 
-def echo(text: str) -> None:
+def echo(renderables: list[ConsoleRenderable]) -> None:
+    console = Console()
     _, terminal_height = shutil.get_terminal_size()
+
+    # Estimate the number of lines
+    with console.capture() as capture:
+        console.print(*renderables)
+    text = capture.get()
     text_lines = text.count("\n") + 1
 
     if text_lines > terminal_height:
