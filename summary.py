@@ -56,7 +56,7 @@ def analyse_file(file_path: Path) -> list[ConsoleRenderable]:
     output: list[ConsoleRenderable] = []
 
     module_docstring = get_first_docstring_line(tree)
-    output.append(Syntax(module_docstring, "python", theme="monokai"))
+    output.append(module_docstring)
     output.append("")
 
     for node in ast.iter_child_nodes(tree):
@@ -67,7 +67,7 @@ def analyse_file(file_path: Path) -> list[ConsoleRenderable]:
             signature = extract_signature(node)
             output.append(Syntax(signature, "python", theme="monokai"))
             docstring = get_first_docstring_line(node)
-            output.append(Syntax(f"{INDENT}{docstring}", "python", theme="monokai"))
+            output.append(f"{INDENT}{docstring}")
             output.append("")
 
         if isinstance(node, ast.ClassDef):
@@ -78,9 +78,7 @@ def analyse_file(file_path: Path) -> list[ConsoleRenderable]:
                         Syntax(f"{INDENT}{signature}", "python", theme="monokai")
                     )
                     docstring = get_first_docstring_line(class_node)
-                    output.append(
-                        Syntax(f"{INDENT*2}{docstring}", "python", theme="monokai")
-                    )
+                    output.append(f"{INDENT*2}{docstring}")
                     output.append("")
 
     return output
