@@ -41,12 +41,14 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
+    { name = "rich" },
     { name = "typer" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "pydantic", specifier = ">=2.9.2" },
+    { name = "rich", specifier = ">=13.9.3" },
     { name = "typer", specifier = ">=0.12.5" },
 ]
 
