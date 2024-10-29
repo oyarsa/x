@@ -27,6 +27,8 @@ class CodeItem(BaseModel):
     line: int
     lines_total: int
     lines_code: int
+    params_kw: int | None = None
+    params_all: int | None = None
 
     @classmethod
     def from_elements(
@@ -42,6 +44,11 @@ class CodeItem(BaseModel):
         lineno_end = node.end_lineno or node.lineno
         lines = source_lines[lineno_start - 1 : lineno_end]
 
+        params_all, params_kw = None, None
+        if isinstance(node, ast.FunctionDef):
+            params_kw = len(node.args.kwonlyargs)
+            params_all = len(node.args.args) + len(node.args.posonlyargs) + params_kw
+
         return cls(
             type_=type_,
             name=name,
@@ -55,6 +62,8 @@ class CodeItem(BaseModel):
                 )
                 for idx, line in enumerate(lines, lineno_start)
             ),
+            params_kw=params_kw,
+            params_all=params_all,
         )
 
 
@@ -84,7 +93,7 @@ def main(
     sort_item: Annotated[
         SortItem, typer.Option("--sort", "-s", help="Column to sort by")
     ] = SortItem.LINE,
-    sort_desc: Annotated[bool, typer.Option("--desc", help="Sort ascending")] = False,
+    sort_desc: Annotated[bool, typer.Option("--desc", help="Sort descending")] = False,
 ) -> None:  # sourcery skip: low-code-quality
     source = file.read_text()
     tree = ast.parse(source)
@@ -115,6 +124,7 @@ def main(
     # Track elements and their lines
     items: list[CodeItem] = []
     parent: dict[ast.AST, ast.AST] = {}
+
     for node in ast.walk(tree):
         # Add parent references for filtering top-level elements
         for child in ast.iter_child_nodes(node):
@@ -143,7 +153,7 @@ def main(
 
 
 def _items_to_table(name: str, items: Sequence[CodeItem]) -> None:
-    table = Table("Type", "Line", "Name", "Total", "Code")
+    table = Table("Type", "Line", "Name", "Total", "Code", "Params", "KW-only")
     for item in items:
         table.add_row(
             item.type_,
@@ -151,6 +161,8 @@ def _items_to_table(name: str, items: Sequence[CodeItem]) -> None:
             item.name,
             str(item.lines_total),
             str(item.lines_code),
+            str(item.params_all or ""),
+            str(item.params_kw or ""),
         )
 
     console = Console()
