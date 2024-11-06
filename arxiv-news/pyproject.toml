@@ -45,7 +45,7 @@ reportUnusedImport = false
 typeCheckingMode = "strict"
 
 [project.scripts]
-arxiv-news = "arxiv_news.titles:main"
+arxiv-news = "arxiv_news.titles:app"
 
 [build-system]
 requires = ["hatchling"]

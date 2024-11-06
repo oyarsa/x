@@ -9,8 +9,10 @@ import argparse
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Annotated
 
 import requests
+import typer
 from rich.console import Console
 from rich.markdown import Markdown
 
@@ -127,18 +129,24 @@ def _display_markdown(markdown_content: str) -> None:
     console.print(md)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument("url", help="URL of the arXiv newsletter")
-    args = parser.parse_args()
+app = typer.Typer(
+    context_settings={"help_option_names": ["-h", "--help"]},
+    add_completion=False,
+    rich_markup_mode="rich",
+    pretty_exceptions_show_locals=False,
+    no_args_is_help=True,
+)
 
-    content = _fetch_content(args.url)
+
+@app.command(help=__doc__)
+def main(
+    url: Annotated[str, typer.Argument(help="URL to the raw arXiv newsletter email")],
+) -> None:
+    content = _fetch_content(url)
     papers = _extract_papers(content)
     markdown_content = _generate_markdown(papers)
     _display_markdown(markdown_content)
 
 
 if __name__ == "__main__":
-    main()
+    app()
