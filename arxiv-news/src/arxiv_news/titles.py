@@ -1,11 +1,5 @@
-"""Extract titles and links from an arXiv newsletter using the raw email URL.
+"""Extract titles and links from an arXiv newsletter using the raw email URL."""
 
-For long outputs, you can pipe the output to a pager like `less`:
-
-    $ uv run arxiv-news <URL> | less -Rg
-"""
-
-import argparse
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -124,9 +118,11 @@ def _generate_markdown(papers: Sequence[Paper]) -> str:
 
 
 def _display_markdown(markdown_content: str) -> None:
-    console = Console(force_terminal=True)
-    md = Markdown(markdown_content)
-    console.print(md)
+    console = Console()
+    with console.capture() as capture:
+        console.print(Markdown(markdown_content))
+
+    typer.echo_via_pager(capture.get())
 
 
 app = typer.Typer(
