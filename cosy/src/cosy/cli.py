@@ -6,6 +6,7 @@ from cosy import (
     find_default_args,
     find_imports,
     find_untyped_return,
+    list_public_items,
     match_deps,
 )
 
@@ -16,6 +17,7 @@ commands = [
     (match_deps, "deps"),
     (code_size, "size"),
     (find_untyped_return, "untyped-return"),
+    (list_public_items, "public"),
 ]
 
 app = typer.Typer(
