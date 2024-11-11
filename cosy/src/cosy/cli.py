@@ -1,3 +1,7 @@
+"""Utilities to analyse Python code."""
+
+from importlib import metadata
+
 import typer
 
 from cosy import (
@@ -20,6 +24,14 @@ commands = [
     (list_public_items, "public"),
 ]
 
+
+def version_callback(value: bool) -> None:
+    if value:
+        version = metadata.version("cosy")
+        typer.echo(f"cosy version {version}")
+        raise typer.Exit()
+
+
 app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
     add_completion=False,
@@ -27,6 +39,22 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
     no_args_is_help=True,
 )
+
+
+@app.callback(help=__doc__)
+def callback(
+    _: bool = typer.Option(
+        None,
+        "--version",
+        "-V",
+        help="Show version and exit.",
+        callback=version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    pass
+
+
 for pkg, name in commands:
     app.command(help=pkg.__doc__, name=name)(pkg.main)
 
