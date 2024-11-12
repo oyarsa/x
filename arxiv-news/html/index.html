@@ -13,16 +13,16 @@
         <div class="bg-white rounded-lg shadow p-6 mb-6">
             <div class="flex gap-2 mb-4">
                 <button class="tab active px-4 py-2 rounded-md border border-blue-500 font-medium
-                               transition-colors" data-tab="content">
-                    Paste Content
-                </button>
-                <button class="tab px-4 py-2 rounded-md border border-blue-500 font-medium
                                transition-colors" data-tab="url">
                     Enter URL
                 </button>
+                <button class="tab px-4 py-2 rounded-md border border-blue-500 font-medium
+                               transition-colors" data-tab="content">
+                    Paste Content
+                </button>
             </div>
 
-            <div class="tab-content active" id="content-tab">
+            <div class="tab-content hidden" id="content-tab">
                 <div class="mb-4">
                     <label class="block text-gray-700 font-medium mb-2">
                         Paste the arXiv newsletter content:
@@ -37,7 +37,7 @@
                 </div>
             </div>
 
-            <div class="tab-content hidden" id="url-tab">
+            <div class="tab-content active" id="url-tab">
                 <div class="mb-4">
                     <label class="block text-gray-700 font-medium mb-2">
                         Enter the URL of the arXiv newsletter:

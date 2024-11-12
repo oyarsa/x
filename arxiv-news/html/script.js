@@ -99,6 +99,11 @@ async function processURL(url) {
 
 // Event Listeners
 document.addEventListener('DOMContentLoaded', () => {
+    // Set initial active tab styling
+    const urlTab = document.querySelector('[data-tab="url"]');
+    urlTab.classList.add('bg-blue-500', 'text-white');
+    urlTab.classList.remove('text-blue-500');
+
     // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
         tab.addEventListener('click', () => {
