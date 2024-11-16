@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "pydantic>=2.9.2",
     "tqdm>=4.67.0",
     "urlextract>=1.9.0",
 ]
@@ -43,3 +44,9 @@ ignore = [
 # so we disable it here to avoid duplicate errors
 reportUnusedImport = false
 typeCheckingMode = "strict"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.389",
+    "ruff>=0.7.4",
+]
