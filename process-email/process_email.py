@@ -1,10 +1,12 @@
 """Process emails from getmail output, with enhanced text cleaning."""
 
+from __future__ import annotations
+
 import argparse
 import html
-import json
+import multiprocessing as mp
 import re
-from dataclasses import asdict, dataclass
+from collections.abc import Iterable
 from email import message_from_bytes
 from email.header import decode_header
 from email.message import Message
@@ -13,20 +15,23 @@ from pathlib import Path
 from typing import cast
 
 import urlextract  # type: ignore
+from pydantic import BaseModel, ConfigDict, TypeAdapter
 from tqdm import tqdm
 
 
-@dataclass(frozen=True, kw_only=True)
-class Contact:
+class Contact(BaseModel):
     """Representation of a name and email address pair."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     email: str
 
 
-@dataclass(frozen=True, kw_only=True)
-class Email:
+class Email(BaseModel):
     """Representation of a cleaned email message."""
+
+    model_config = ConfigDict(frozen=True)
 
     from_: Contact
     to: Contact
@@ -35,15 +40,7 @@ class Email:
 
 
 def remove_repeated_chars(text: str) -> str:
-    """Remove or consolidate repeated special characters.
-
-    Handles:
-    - Repeated punctuation (*, -, =, etc.)
-    - Quote marks (>)
-    - Whitespace
-    - Common email separators
-    """
-    # Handle repeated special characters
+    """Remove or consolidate repeated special characters."""
     patterns = [
         (r"\*{3,}", ""),  # Remove repeated asterisks
         (r"-{3,}", ""),  # Remove repeated dashes
@@ -60,7 +57,6 @@ def remove_repeated_chars(text: str) -> str:
     for pattern, replacement in patterns:
         text = re.sub(pattern, replacement, text)
 
-    # Clean up whitespace around the removed patterns
     text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)  # Normalize multiple newlines
     text = re.sub(r"[ \t]+", " ", text)  # Normalize horizontal whitespace
 
@@ -183,7 +179,6 @@ def remove_email_artifacts(text: str) -> str:
 
 def clean_unicode(text: str) -> str:
     """Clean problematic Unicode characters and normalize text."""
-    # Replace common Unicode punctuation with ASCII equivalents
     replacements = {
         # Quotes and apostrophes
         "\u2018": "'",  # Left single quote
@@ -274,7 +269,7 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def get_text_parts(message: Message) -> list[str]:
+def get_text_parts(message: Message[str, str]) -> list[str]:
     """Extract all text/plain parts from an email message."""
     texts: list[str] = []
 
@@ -290,14 +285,15 @@ def get_text_parts(message: Message) -> list[str]:
                 text = payload.decode("utf-8", errors="replace")
                 texts.append(text)
     elif message.is_multipart():
-        for part in message.get_payload():
+        for part in message.get_payload(decode=False):
             if isinstance(part, Message):
+                part = cast("Message[str, str]", part)  # pyright: ignore[reportUnnecessaryCast]
                 texts.extend(get_text_parts(part))
 
     return texts
 
 
-def get_email_text(message: Message) -> str:
+def get_email_text(message: Message[str, str]) -> str:
     """Extract and clean the text content from an email message."""
     texts = get_text_parts(message)
 
@@ -308,35 +304,62 @@ def get_email_text(message: Message) -> str:
     return clean_text(combined)
 
 
-def process_email_file(message: Message) -> Email:
+def process_email_file(file_path: Path) -> Email | None:
     """Process a single email file into a simplified representation."""
-    from_addr = message.get("From", "")
-    to_addr = message.get("To", "")
-    subject = clean_text(decode_header_string(message.get("Subject", "")))
-    text = get_email_text(message)
+    try:
+        message = message_from_bytes(file_path.read_bytes())
+        from_addr = message.get("From", "")
+        to_addr = message.get("To", "")
+        subject = clean_text(decode_header_string(message.get("Subject", "")))
+        text = get_email_text(message)
 
-    return Email(
-        from_=extract_name_and_email(from_addr),
-        to=extract_name_and_email(to_addr),
-        subject=subject,
-        text=text,
-    )
+        return Email(
+            from_=extract_name_and_email(from_addr),
+            to=extract_name_and_email(to_addr),
+            subject=subject,
+            text=text,
+        )
+    except Exception as e:
+        print(f"Error processing {file_path}: {e}")
+        return None
+
+
+def chunk_files(files: list[Path], chunk_size: int) -> Iterable[list[Path]]:
+    """Split files into chunks for parallel processing."""
+    for i in range(0, len(files), chunk_size):
+        yield files[i : i + chunk_size]
+
+
+def process_chunk(files: Iterable[Path]) -> list[Email]:
+    """Process a chunk of email files."""
+    return [result for file in files if (result := process_email_file(file))]
 
 
 def main(input_path: Path, output_path: Path, limit: int | None) -> None:
-    """Process getmail files and save results to JSON file."""
+    """Process getmail files in parallel and save results to JSON file."""
+    # Get list of files to process
     files = [file for file in input_path.rglob("*") if file.is_file()]
+    files = files[:limit]
+
+    # Determine optimal chunk size and number of processes
+    cpu_count = mp.cpu_count()
+    chunk_size = max(
+        1, len(files) // (cpu_count * 4)
+    )  # Ensure at least 1 file per chunk
 
     emails: list[Email] = []
-    for file in tqdm(files[:limit]):
-        try:
-            message = message_from_bytes(file.read_bytes())
-            emails.append(process_email_file(message))
-        except Exception as e:
-            tqdm.write(f"Error processing {file}: {e}")
+    chunks = chunk_files(files, chunk_size)
+
+    with (
+        mp.Pool(processes=cpu_count) as pool,
+        tqdm(total=len(files), desc="Processing emails") as pbar,
+    ):
+        for chunk_results in pool.imap_unordered(process_chunk, chunks):
+            emails.extend(chunk_results)
+            pbar.update(len(chunk_results))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps([asdict(e) for e in emails], indent=2))
+    output_path.write_bytes(TypeAdapter(list[Email]).dump_json(emails))
 
 
 if __name__ == "__main__":
