@@ -99,6 +99,8 @@ async function processURL(url) {
 
 // Event Listeners
 document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('url').focus();
+
     // Set initial active tab styling
     const urlTab = document.querySelector('[data-tab="url"]');
     urlTab.classList.add('bg-blue-500', 'text-white');
