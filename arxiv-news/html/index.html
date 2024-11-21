@@ -1,78 +1,102 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>arXiv Newsletter Viewer</title>
     <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body>
+  </head>
+  <body>
     <div class="max-w-3xl mx-auto px-4 py-8">
-        <h1 class="text-4xl font-bold text-center mb-8">arXiv Newsletter Viewer</h1>
+      <h1 class="text-4xl font-bold text-center mb-8">
+        arXiv Newsletter Viewer
+      </h1>
 
-        <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <div class="flex gap-2 mb-4">
-                <button class="tab active px-4 py-2 rounded-md border border-blue-500 font-medium
-                               transition-colors" data-tab="url">
-                    Enter URL
-                </button>
-                <button class="tab px-4 py-2 rounded-md border border-blue-500 font-medium
-                               transition-colors" data-tab="content">
-                    Paste Content
-                </button>
-            </div>
-
-            <div class="tab-content hidden" id="content-tab">
-                <div class="mb-4">
-                    <label class="block text-gray-700 font-medium mb-2">
-                        Paste the arXiv newsletter content:
-                    </label>
-                    <textarea id="content" class="w-full p-3 border rounded-md mb-4 min-h-[12rem]"
-                              placeholder="Paste the content here...">
-                    </textarea>
-                    <button id="process-content" class="w-full bg-blue-500 text-white py-3 px-6 rounded-md
-                                font-medium hover:bg-blue-600 transition-colors">
-                        Process Content
-                    </button>
-                </div>
-            </div>
-
-            <div class="tab-content active" id="url-tab">
-                <div class="mb-4">
-                    <label class="block text-gray-700 font-medium mb-2">
-                        Enter the URL of the arXiv newsletter:
-                    </label>
-                    <input type="url" id="url" class="w-full p-3 border rounded-md mb-2"
-                        placeholder="https://example.com/arxiv-newsletter">
-                    <p class="text-sm text-gray-500 italic mb-4">
-                        Note: Due to browser security restrictions, direct URL fetching may not work. If
-                        you encounter errors, please copy and paste the content instead.
-                    </p>
-                    <button id="process-url" class="w-full bg-blue-500 text-white py-3 px-6 rounded-md
-                                                    font-medium hover:bg-blue-600 transition-colors">
-                        Process URL
-                    </button>
-                </div>
-            </div>
+      <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <div class="flex gap-2 mb-4">
+          <button
+            class="tab active px-4 py-2 rounded-md border border-blue-500 font-medium transition-colors"
+            data-tab="url"
+            type="button"
+          >
+            Enter URL
+          </button>
+          <button
+            class="tab px-4 py-2 rounded-md border border-blue-500 font-medium transition-colors"
+            data-tab="content"
+            type="button"
+          >
+            Paste Content
+          </button>
         </div>
 
-        <div id="error" class="hidden bg-red-100 border border-red-200 text-red-700 p-4 rounded-md mb-4">
-        </div>
-        <div id="loading" class="hidden text-center text-gray-600 p-4">
-            Processing...
+        <div class="tab-content hidden" id="content-tab">
+          <div class="mb-4">
+            <label class="block text-gray-700 font-medium mb-2">
+              Paste the arXiv newsletter content:
+            </label>
+            <textarea
+              id="content"
+              class="w-full p-3 border rounded-md mb-4 min-h-[12rem]"
+              placeholder="Paste the content here..."
+            >
+            </textarea>
+            <button
+              id="process-content"
+              class="w-full bg-blue-500 text-white py-3 px-6 rounded-md font-medium hover:bg-blue-600 transition-colors"
+              type="button"
+            >
+              Process Content
+            </button>
+          </div>
         </div>
 
-        <div id="results" class="hidden">
-            <div id="stats" class="text-gray-600 my-6"></div>
-            <div id="highlighted-papers" class="mb-8">
-                <h2 class="text-xl font-semibold mb-4">Highlighted Papers</h2>
-            </div>
-            <div id="other-papers" class="mb-8">
-                <h2 class="text-xl font-semibold mb-4">Other Papers</h2>
-            </div>
+        <div class="tab-content active" id="url-tab">
+          <div class="mb-4">
+            <label class="block text-gray-700 font-medium mb-2">
+              Enter the URL of the arXiv newsletter:
+            </label>
+            <input
+              type="url"
+              id="url"
+              class="w-full p-3 border rounded-md mb-2"
+              placeholder="https://example.com/arxiv-newsletter"
+            />
+            <p class="text-sm text-gray-500 italic mb-4">
+              Note: Due to browser security restrictions, direct URL fetching
+              may not work. If you encounter errors, please copy and paste the
+              content instead.
+            </p>
+            <button
+              id="process-url"
+              class="w-full bg-blue-500 text-white py-3 px-6 rounded-md font-medium hover:bg-blue-600 transition-colors"
+              type="button"
+            >
+              Process URL
+            </button>
+          </div>
         </div>
+      </div>
+
+      <div
+        id="error"
+        class="hidden bg-red-100 border border-red-200 text-red-700 p-4 rounded-md mb-4"
+      ></div>
+      <div id="loading" class="hidden text-center text-gray-600 p-4">
+        Processing...
+      </div>
+
+      <div id="results" class="hidden">
+        <div id="stats" class="text-gray-600 my-6"></div>
+        <div id="highlighted-papers" class="mb-8">
+          <h2 class="text-xl font-semibold mb-4">Highlighted Papers</h2>
+        </div>
+        <div id="other-papers" class="mb-8">
+          <h2 class="text-xl font-semibold mb-4">Other Papers</h2>
+        </div>
+      </div>
     </div>
 
     <script src="script.js"></script>
-</body>
+  </body>
 </html>
