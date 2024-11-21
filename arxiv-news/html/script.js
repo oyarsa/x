@@ -99,7 +99,16 @@ async function processURL(url) {
 
 // Event Listeners
 document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('url').focus();
+    const urlInput = document.getElementById('url');
+    urlInput.focus();
+
+    // Add Enter key event listener
+    urlInput.addEventListener('keypress', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            document.getElementById('process-url').click();
+        }
+    });
 
     // Set initial active tab styling
     const urlTab = document.querySelector('[data-tab="url"]');
