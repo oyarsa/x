@@ -6,6 +6,7 @@ import typer
 
 from cosy import (
     code_size,
+    compare,
     count_items,
     find_base_models,
     find_default_args,
@@ -24,6 +25,7 @@ commands = [
     (find_untyped_return, "untyped-return"),
     (list_public_items, "public"),
     (count_items, "counts"),
+    (compare, "compare"),
 ]
 
 
