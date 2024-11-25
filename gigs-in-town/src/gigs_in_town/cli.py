@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,10 +75,18 @@ class Concert(BaseModel):
 @app.command(no_args_is_help=True)
 def stats(
     input_file: Annotated[Path, typer.Argument(help="Input concerts YAML file.")],
+    start_date: Annotated[
+        str | None, typer.Option("--start", help="Start date for filtering.")
+    ] = None,
+    end_date: Annotated[
+        str | None, typer.Option("--end", help="Start date for filtering.")
+    ] = None,
 ) -> None:
     """Show statistics about bands and venues."""
-    events = _load(Event, input_file)
-    today = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
+    concerts = _load(Event, input_file)
+
+    start_date = start_date or "2022-01-01"
+    end_date = end_date or dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
 
     concerts = [
         Concert(
@@ -86,25 +94,42 @@ def stats(
             date=event.date,
             location=event.location,
         )
-        for event in events
-        if event.date <= today
+        for event in concerts
+        if start_date <= event.date <= end_date
     ]
 
     bands_all = [band for concert in concerts for band in concert.bands]
     bands = set(bands_all)
     venues = {concert.location for concert in concerts}
-    earliest_date = min(event.date for event in events)
+    earliest_date = min(event.date for event in concerts)
+    avg_interesting = len(bands_all) / len(concerts)
 
     console = Console()
     console.print(_details_table(bands, "band", concerts))
     console.print(_details_table(venues, "venue", concerts))
     console.print()
-    console.print(f"Today: {today}")
+    console.print(f"Start: {start_date}")
+    console.print(f"End: {end_date}")
     console.print(f"Earliest date: {earliest_date}")
     console.print(f"Unique bands: {len(bands)}")
     console.print(f"Unique venues: {len(venues)}")
-    console.print(f"Events: {len(events)}")
-    console.print(f"Total bands: {len(bands_all)}")
+    console.print(f"Events: {len(concerts)}")
+    console.print(f"Total interesting bands: {len(bands_all)}")
+    console.print(f"Average interesting bands per concert: {avg_interesting:.2f}")
+
+    monthly: defaultdict[str, list[Concert]] = defaultdict(list)
+    for concert in concerts:
+        month = "-".join(concert.date.split("-")[:2])
+        monthly[month].append(concert)
+
+    monthly_table = Table("Month", "Events", "Headliners", "Bands")
+    for month, concerts in sorted(monthly.items(), key=lambda x: x[0]):
+        bands = [band for concert in concerts for band in concert.bands]
+        headliners = [concert.bands[0] for concert in concerts]
+        monthly_table.add_row(
+            month, str(len(concerts)), ", ".join(headliners), ", ".join(bands)
+        )
+    console.print(monthly_table)
 
 
 @dataclass(frozen=True, kw_only=True)
