@@ -5,13 +5,13 @@
 Requires Go. Install with:
 
 ```console
-$ go install github.com/oyarsa/x/weekly-calendar
+$ cargo install github.com/oyarsa/x/weekly-calendar
 ```
 
 Or clone the repository and run:
 
 ```console
-$ go install .
+$ cargo install --path .
 ```
 
 ## Usage
@@ -46,6 +46,8 @@ Days passed:     43 (34.13%)
 Days remaining:  83 (65.87%)
 Total days:     126
 ```
+
+Add `--todo PATH` to print the `$PATH` file after the calendar.
 
 ## License
 
