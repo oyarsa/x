@@ -1,3 +1,5 @@
+//! Show weekly calendar until date and (optionally) print TODO list.
+
 use anyhow::{Context, Result};
 use chrono::{Datelike, NaiveDate, Utc};
 use clap::Parser;
@@ -110,22 +112,23 @@ fn generate_week_calendar(week_start: NaiveDate, dates: &CalendarDates) -> Strin
     }
 }
 
-fn generate_calendar(dates: &CalendarDates) -> Vec<String> {
+fn generate_calendar(dates: &'_ CalendarDates) -> impl Iterator<Item = String> + '_ {
     (dates.start.num_days_from_ce()..=dates.end.num_days_from_ce())
         .step_by(7)
         .filter_map(NaiveDate::from_num_days_from_ce_opt)
-        .map(|current| {
+        .map(move |current| {
             // Adjust to start of week (Monday)
             let week_start =
                 current - chrono::Duration::days(current.weekday().num_days_from_monday() as i64);
             generate_week_calendar(week_start, dates)
         })
-        .collect()
 }
 
 fn count_days(start: NaiveDate, end: NaiveDate, predicate: impl Fn(NaiveDate) -> bool) -> usize {
     (start.num_days_from_ce()..=end.num_days_from_ce())
-        .map(|days| NaiveDate::from_num_days_from_ce_opt(days).unwrap())
+        .map(|days| {
+            NaiveDate::from_num_days_from_ce_opt(days).expect("Date range is always valid.")
+        })
         .filter(|&date| predicate(date))
         .count()
 }
