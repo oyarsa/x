@@ -33,6 +33,7 @@ class FunctionVisitor(ast.NodeVisitor):
         self.functions: list[Function] = []
 
     def get_type_annotation(self, node: ast.AST) -> str | None:
+        # @FIX: Some types (e.g. T | None, some imports) are getting `None` as the type.
         """Get type annotation for node."""
         match node:
             case ast.Name(id):
