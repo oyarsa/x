@@ -12,6 +12,7 @@ from cosy import (
     find_default_args,
     find_imports,
     find_untyped_return,
+    list_funcs,
     list_public_items,
     match_deps,
 )
@@ -26,6 +27,7 @@ commands = [
     (list_public_items, "public"),
     (count_items, "counts"),
     (compare, "compare"),
+    (list_funcs, "funcs"),
 ]
 
 
