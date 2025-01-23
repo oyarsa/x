@@ -1,6 +1,6 @@
 [project]
 name = "cosy"
-version = "0.3.0"
+version = "0.4.0"
 description = "Utilities to analyse Python code"
 readme = "README.md"
 authors = [
