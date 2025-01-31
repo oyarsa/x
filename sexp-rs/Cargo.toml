@@ -1,0 +1,8 @@
+[package]
+name = "sexp-rs"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+authors = ["Italo Silva <italo@maleldil.com>"]
+
+[dependencies]

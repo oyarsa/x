@@ -1,0 +1,51 @@
+_default:
+    @just --unsorted --list
+
+# List available binaries
+bins:
+    @echo "Available binaries in this project:"
+    @cargo metadata --no-deps --format-version=1 \
+        | jq -r '.packages[].targets[] | select(.kind[] == "bin") | "- " + .name'
+
+
+# Run a specific binary in debug mode with args
+run BINARY *ARGS:
+    @cargo run --quiet --bin {{BINARY}} -- {{ARGS}}
+
+# Run a specific binary in release mode with args
+runopt BINARY *ARGS:
+    @cargo run --quiet --release --bin {{BINARY}} -- {{ARGS}}
+
+# Run all lints and fixes files
+lint: clippy-fix fmt
+
+# Build the project
+build:
+    cargo build
+
+# Build with optimizations
+release:
+    cargo build --release
+
+# Run tests
+test:
+    cargo test
+
+# Run clippy linter
+clippy:
+    cargo clippy -- -D warnings
+
+# Run clippy linter with autofix
+clippy-fix:
+    cargo clippy --fix --allow-dirty -- -D warnings
+
+# Run rustfmt checker
+fmt-check:
+    cargo fmt -- --check
+
+# Format code
+fmt:
+    cargo fmt
+
+# Run all lints
+check: clippy fmt-check
