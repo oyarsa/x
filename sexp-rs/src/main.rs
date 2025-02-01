@@ -26,9 +26,10 @@ use std::fmt;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use thiserror::Error;
 
 // ======================================================================
-// CLI definition using clap (with ClapParser alias)
+// CLI definition
 // ======================================================================
 
 #[derive(ClapParser, Debug)]
@@ -79,38 +80,26 @@ impl SExp {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
 pub enum ParseError {
+    #[error("Unexpected end of input at line {0}")]
     UnexpectedEOF(usize),
+
+    #[error("Unclosed string literal at line {0}")]
     UnterminatedString(usize),
+
+    #[error("Unclosed parenthesis at line {0}")]
     UnclosedParen(usize),
+
+    #[error("Unexpected closing parenthesis at line {0}")]
     UnexpectedCloseParen(usize),
+
+    #[error("Empty quoted expression at line {0}")]
     EmptyQuoted(usize),
+
+    #[error("Unexpected content at line {1}: {0}")]
     UnexpectedContent(String, usize),
 }
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ParseError::UnexpectedEOF(line) => {
-                write!(f, "Unexpected end of input at line {}", line)
-            }
-            ParseError::UnterminatedString(line) => {
-                write!(f, "Unclosed string literal at line {}", line)
-            }
-            ParseError::UnclosedParen(line) => write!(f, "Unclosed parenthesis at line {}", line),
-            ParseError::UnexpectedCloseParen(line) => {
-                write!(f, "Unexpected closing parenthesis at line {}", line)
-            }
-            ParseError::EmptyQuoted(line) => write!(f, "Empty quoted expression at line {}", line),
-            ParseError::UnexpectedContent(msg, line) => {
-                write!(f, "Unexpected content at line {}: {}", line, msg)
-            }
-        }
-    }
-}
-
-impl Error for ParseError {}
 
 impl fmt::Display for SExp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -337,87 +326,37 @@ impl Value {
     }
 }
 
-#[derive(Debug)]
-enum EvalError {
-    UndefinedVariable {
-        message: String,
-        line: usize,
-    },
-    UnknownFunction {
-        message: String,
-        line: usize,
-    },
-    InvalidFunctionCall {
-        message: String,
-        line: usize,
-    },
-    NonLiteralInQuoted {
-        message: String,
-        line: usize,
-    },
-    InterpolationDepthExceeded {
-        message: String,
-        line: usize,
-    },
+#[derive(Debug, Error)]
+pub enum EvalError {
+    #[error("Undefined variable: {message} (at line {line})")]
+    UndefinedVariable { message: String, line: usize },
+
+    #[error("Unknown function: {message} (at line {line})")]
+    UnknownFunction { message: String, line: usize },
+
+    #[error("Invalid function call: {message} (at line {line})")]
+    InvalidFunctionCall { message: String, line: usize },
+
+    #[error("Non-literal value in quoted expression: {message} (at line {line})")]
+    NonLiteralInQuoted { message: String, line: usize },
+
+    #[error("Interpolation depth exceeded: {message} (at line {line})")]
+    InterpolationDepthExceeded { message: String, line: usize },
+
+    #[error("Type error for variable {var}: value {value} is not allowed (allowed: {allowed:?}) (at line {line})")]
     TypeError {
         var: String,
         value: String,
         allowed: Vec<String>,
         line: usize,
     },
-    ExecutionError {
-        message: String,
-        line: usize,
-    },
-    Other {
-        message: String,
-        line: usize,
-    },
-}
 
-impl fmt::Display for EvalError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            EvalError::UndefinedVariable { message, line } => {
-                write!(f, "Undefined variable: {} (at line {})", message, line)
-            }
-            EvalError::UnknownFunction { message, line } => {
-                write!(f, "Unknown function: {} (at line {})", message, line)
-            }
-            EvalError::InvalidFunctionCall { message, line } => {
-                write!(f, "Invalid function call: {} (at line {})", message, line)
-            }
-            EvalError::NonLiteralInQuoted { message, line } => write!(
-                f,
-                "Non–literal value in quoted expression: {} (at line {})",
-                message, line
-            ),
-            EvalError::InterpolationDepthExceeded { message, line } => write!(
-                f,
-                "Interpolation depth exceeded: {} (at line {})",
-                message, line
-            ),
-            EvalError::TypeError {
-                var,
-                value,
-                allowed,
-                line,
-            } => write!(
-                f,
-                "Type error for variable {}: value {} is not allowed (allowed: {:?}) (at line {})",
-                var, value, allowed, line
-            ),
-            EvalError::ExecutionError { message, line } => {
-                write!(f, "Execution error: {} (at line {})", message, line)
-            }
-            EvalError::Other { message, line } => {
-                write!(f, "Error: {} (at line {})", message, line)
-            }
-        }
-    }
-}
+    #[error("Execution error: {message} (at line {line})")]
+    ExecutionError { message: String, line: usize },
 
-impl Error for EvalError {}
+    #[error("Error: {message} (at line {line})")]
+    Other { message: String, line: usize },
+}
 
 struct Context {
     base_cmd: Option<String>,
@@ -1169,48 +1108,49 @@ fn process_group(items: &[SExp], ctx: &mut Context) -> Result<(), EvalError> {
             if prop_items.is_empty() {
                 continue;
             }
-            if let SExp::Symbol(key, _) = &prop_items[0] {
-                match key.as_str() {
-                    "desc" => {
-                        if prop_items.len() >= 2 {
-                            if let SExp::String(s, _) = &prop_items[1] {
-                                group_task.desc = Some(s.clone());
-                            }
+            let SExp::Symbol(key, _) = &prop_items[0] else {
+                continue;
+            };
+            match key.as_str() {
+                "desc" => {
+                    if prop_items.len() >= 2 {
+                        if let SExp::String(s, _) = &prop_items[1] {
+                            group_task.desc = Some(s.clone());
                         }
                     }
-                    "meta" => {
-                        for meta_prop in &prop_items[1..] {
-                            if let SExp::List(pair, _) = meta_prop {
-                                if pair.len() == 2 {
-                                    let mkey = match &pair[0] {
-                                        SExp::Symbol(s, _) | SExp::String(s, _) => s.clone(),
-                                        _ => continue,
-                                    };
-                                    let mval = match &pair[1] {
-                                        SExp::Symbol(s, _) | SExp::String(s, _) => s.clone(),
-                                        _ => continue,
-                                    };
-                                    group_task.meta.insert(mkey, mval);
-                                }
-                            }
-                        }
-                    }
-                    "params" => {
-                        if prop_items.len() >= 2 {
-                            if let SExp::String(s, _) = &prop_items[1] {
-                                group_task.params = Some(s.clone());
-                            }
-                        }
-                    }
-                    "cmd" => {
-                        if prop_items.len() >= 2 {
-                            if let SExp::String(s, _) = &prop_items[1] {
-                                group_task.cmd = Some(s.clone());
-                            }
-                        }
-                    }
-                    _ => {}
                 }
+                "meta" => {
+                    for meta_prop in &prop_items[1..] {
+                        if let SExp::List(pair, _) = meta_prop {
+                            if pair.len() == 2 {
+                                let mkey = match &pair[0] {
+                                    SExp::Symbol(s, _) | SExp::String(s, _) => s.clone(),
+                                    _ => continue,
+                                };
+                                let mval = match &pair[1] {
+                                    SExp::Symbol(s, _) | SExp::String(s, _) => s.clone(),
+                                    _ => continue,
+                                };
+                                group_task.meta.insert(mkey, mval);
+                            }
+                        }
+                    }
+                }
+                "params" => {
+                    if prop_items.len() >= 2 {
+                        if let SExp::String(s, _) = &prop_items[1] {
+                            group_task.params = Some(s.clone());
+                        }
+                    }
+                }
+                "cmd" => {
+                    if prop_items.len() >= 2 {
+                        if let SExp::String(s, _) = &prop_items[1] {
+                            group_task.cmd = Some(s.clone());
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -1372,7 +1312,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let tasks_to_run = if cli.tasks.is_empty() {
         vec!["default".to_string()]
     } else {
-        cli.tasks.clone()
+        cli.tasks
     };
 
     let mut executed = HashSet::new();
