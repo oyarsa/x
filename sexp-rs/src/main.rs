@@ -1,16 +1,22 @@
 //! A single–file evaluator for our DSL.
 //!
-//! It uses the provided S–expression parser and supports the DSL forms:
+//! This program parses S–expressions that track line numbers and supports DSL forms:
 //!   base-cmd, load-env, load-config, types, def, task, and group.
 //!
-//! It also implements built–in functions (or, and, if, equal?, env, conf,
-//! git-root, current-timestamp, shell, from-shell) and does string interpolation
-//! for values (using {var} syntax with a maximum depth of 10).
+//! It implements built–in functions (or, and, if, equal?, env, conf, git-root,
+//! current-timestamp, shell, from-shell) and performs string interpolation
+//! (using {var} syntax with a maximum recursion depth of 10).
 //!
-//! The CLI supports “--list” (to list available tasks) and running tasks (by name,
-//! or by group name). Tasks may have dependencies (steps) and will be executed in order.
+//! The CLI supports:
+//!   - Listing tasks: `dsl --list` (with optional `--verbose` for descriptions)
+//!   - Running tasks (or groups), e.g. `dsl eval.accuracy` or `dsl train eval.accuracy`
+//!   - Passing extra arguments: e.g. `dsl eval.accuracy -- --verbose`
+//!   - Specifying the DSL file with `--file`/`-f` (default: "tasks.dsl")
+//!   - When no tasks are provided, it defaults to the "default" task.
+//!   - Every evaluation error is annotated with the line number where it occurred.
 
 use chrono::Utc;
+use clap::Parser as ClapParser;
 use regex::Regex;
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
@@ -22,36 +28,84 @@ use std::path::Path;
 use std::process::Command;
 
 // ======================================================================
-// S–Expression parser (from the provided main.rs)
+// CLI definition using clap (with ClapParser alias)
+// ======================================================================
+
+#[derive(ClapParser, Debug)]
+#[command(name = "dsl", about = "DSL Task Runner", version, author)]
+struct Cli {
+    /// Path to the DSL file
+    #[arg(short, long, default_value = "tasks.dsl")]
+    file: String,
+
+    /// List all available tasks
+    #[arg(long)]
+    list: bool,
+
+    /// Print descriptions with the task list
+    #[arg(long)]
+    verbose: bool,
+
+    /// Names of tasks or groups to run
+    #[arg()]
+    tasks: Vec<String>,
+
+    /// Extra arguments to pass to the task command (after `--`)
+    #[arg(last = true, num_args = 0..)]
+    extra_args: Vec<String>,
+}
+
+// ======================================================================
+// S–Expression parser with location tracking
 // ======================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SExp {
-    Symbol(String),
-    String(String),
-    List(Vec<SExp>),
-    Quoted(Box<SExp>),
+    Symbol(String, usize),
+    String(String, usize),
+    List(Vec<SExp>, usize),
+    Quoted(Box<SExp>, usize),
 }
 
-#[derive(Debug)]
+impl SExp {
+    /// Return the line number where this SExp was parsed.
+    fn line(&self) -> usize {
+        match self {
+            SExp::Symbol(_, line) => *line,
+            SExp::String(_, line) => *line,
+            SExp::List(_, line) => *line,
+            SExp::Quoted(_, line) => *line,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum ParseError {
-    UnexpectedEOF,
-    UnterminatedString,
-    UnclosedParen,
-    UnexpectedCloseParen,
-    EmptyQuoted,
-    UnexpectedContent(String),
+    UnexpectedEOF(usize),
+    UnterminatedString(usize),
+    UnclosedParen(usize),
+    UnexpectedCloseParen(usize),
+    EmptyQuoted(usize),
+    UnexpectedContent(String, usize),
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::UnexpectedEOF => write!(f, "Unexpected end of input"),
-            Self::UnterminatedString => write!(f, "Unclosed string literal"),
-            Self::UnclosedParen => write!(f, "Unclosed parenthesis"),
-            Self::UnexpectedCloseParen => write!(f, "Unexpected closing parenthesis"),
-            Self::EmptyQuoted => write!(f, "Empty quoted expression"),
-            Self::UnexpectedContent(s) => write!(f, "Unexpected content after expression: {}", s),
+            ParseError::UnexpectedEOF(line) => {
+                write!(f, "Unexpected end of input at line {}", line)
+            }
+            ParseError::UnterminatedString(line) => {
+                write!(f, "Unclosed string literal at line {}", line)
+            }
+            ParseError::UnclosedParen(line) => write!(f, "Unclosed parenthesis at line {}", line),
+            ParseError::UnexpectedCloseParen(line) => {
+                write!(f, "Unexpected closing parenthesis at line {}", line)
+            }
+            ParseError::EmptyQuoted(line) => write!(f, "Empty quoted expression at line {}", line),
+            ParseError::UnexpectedContent(msg, line) => {
+                write!(f, "Unexpected content at line {}: {}", line, msg)
+            }
         }
     }
 }
@@ -61,9 +115,9 @@ impl Error for ParseError {}
 impl fmt::Display for SExp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            SExp::Symbol(s) => write!(f, "{}", quote_symbol(s)),
-            SExp::String(s) => write!(f, "\"{}\"", quote_string(s)),
-            SExp::List(items) => {
+            SExp::Symbol(s, _) => write!(f, "{}", s),
+            SExp::String(s, _) => write!(f, "\"{}\"", s),
+            SExp::List(items, _) => {
                 write!(f, "(")?;
                 for (i, item) in items.iter().enumerate() {
                     if i > 0 {
@@ -73,41 +127,9 @@ impl fmt::Display for SExp {
                 }
                 write!(f, ")")
             }
-            SExp::Quoted(exp) => write!(f, "'{}", exp),
+            SExp::Quoted(exp, _) => write!(f, "'{}", exp),
         }
     }
-}
-
-fn quote_string(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
-        .replace('\u{0008}', "\\b")
-        .replace('\u{000C}', "\\f")
-}
-
-fn quote_symbol(s: &str) -> String {
-    let mut result = s.to_string();
-    for (pattern, replacement) in [
-        ("\\", "\\\\"),
-        ("'", "\\'"),
-        ("`", "\\`"),
-        ("\"", "\\\""),
-        ("(", "\\("),
-        (")", "\\)"),
-        ("[", "\\["),
-        ("]", "\\]"),
-        (" ", "\\ "),
-        (",", "\\,"),
-        ("?", "\\?"),
-        (";", "\\;"),
-        ("#", "\\#"),
-    ] {
-        result = result.replace(pattern, replacement);
-    }
-    result
 }
 
 pub struct Parser<'a> {
@@ -137,9 +159,13 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Compute the current line number (starting at 1).
+    fn current_line(&self) -> usize {
+        self.text[..self.pos].matches('\n').count() + 1
+    }
+
     fn parse_sexp(&mut self) -> Result<SExp, ParseError> {
         let chars: Vec<char> = self.text.chars().collect();
-        // Skip whitespace and comments.
         while self.pos < chars.len() {
             let c = chars[self.pos];
             if c.is_whitespace() {
@@ -151,29 +177,43 @@ impl<'a> Parser<'a> {
             }
         }
         if self.pos >= chars.len() {
-            return Err(ParseError::UnexpectedEOF);
+            return Err(ParseError::UnexpectedEOF(self.current_line()));
         }
         match chars[self.pos] {
             '(' => {
+                let start_line = self.current_line();
                 self.pos += 1;
                 let mut list = Vec::new();
                 while self.pos < chars.len() && chars[self.pos] != ')' {
                     list.push(self.parse_sexp()?);
                 }
                 if self.pos >= chars.len() {
-                    return Err(ParseError::UnclosedParen);
+                    return Err(ParseError::UnclosedParen(self.current_line()));
                 }
-                self.pos += 1; // skip ')'
-                Ok(SExp::List(list))
+                self.pos += 1; // consume ')'
+                Ok(SExp::List(list, start_line))
             }
-            ')' => Err(ParseError::UnexpectedCloseParen),
-            '"' => self.parse_string(&chars),
+            ')' => Err(ParseError::UnexpectedCloseParen(self.current_line())),
+            '"' => {
+                let start_line = self.current_line();
+                self.parse_string(&chars).map(|s| match s {
+                    SExp::String(val, _) => SExp::String(val, start_line),
+                    other => other,
+                })
+            }
             '\'' => {
+                let start_line = self.current_line();
                 self.pos += 1;
                 let quoted = self.parse_sexp()?;
-                Ok(SExp::Quoted(Box::new(quoted)))
+                Ok(SExp::Quoted(Box::new(quoted), start_line))
             }
-            _ => self.parse_atom(&chars),
+            _ => {
+                let start_line = self.current_line();
+                self.parse_atom(&chars).map(|s| match s {
+                    SExp::Symbol(val, _) => SExp::Symbol(val, start_line),
+                    other => other,
+                })
+            }
         }
     }
 
@@ -185,12 +225,12 @@ impl<'a> Parser<'a> {
             match chars[self.pos] {
                 '"' => {
                     self.pos += 1;
-                    return Ok(SExp::String(result));
+                    return Ok(SExp::String(result, self.current_line()));
                 }
                 '\\' => {
                     self.pos += 1;
                     if self.pos >= chars.len() {
-                        return Err(ParseError::UnterminatedString);
+                        return Err(ParseError::UnterminatedString(self.current_line()));
                     }
                     result.push(match chars[self.pos] {
                         'n' => '\n',
@@ -205,7 +245,7 @@ impl<'a> Parser<'a> {
             }
             self.pos += 1;
         }
-        Err(ParseError::UnterminatedString)
+        Err(ParseError::UnterminatedString(self.current_line()))
     }
 
     fn parse_atom(&mut self, chars: &[char]) -> Result<SExp, ParseError> {
@@ -219,16 +259,18 @@ impl<'a> Parser<'a> {
         }
         let token: String = chars[start..self.pos].iter().collect();
         Ok(match token.as_str() {
-            s if s == self.nil => SExp::List(vec![]),
-            s if s == self.true_val => SExp::Symbol("true".to_string()),
-            s if Some(s) == self.false_val => SExp::Symbol("false".to_string()),
+            s if s == self.nil => SExp::List(vec![], self.current_line()),
+            s if s == self.true_val => SExp::Symbol("true".to_string(), self.current_line()),
+            s if Some(s) == self.false_val => {
+                SExp::Symbol("false".to_string(), self.current_line())
+            }
             _ => {
                 if let Ok(n) = token.parse::<i64>() {
-                    SExp::Symbol(n.to_string())
+                    SExp::Symbol(n.to_string(), self.current_line())
                 } else if let Ok(f) = token.parse::<f64>() {
-                    SExp::Symbol(f.to_string())
+                    SExp::Symbol(f.to_string(), self.current_line())
                 } else {
-                    SExp::Symbol(token)
+                    SExp::Symbol(token, self.current_line())
                 }
             }
         })
@@ -241,14 +283,12 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// Repeatedly parse one S–expression at a time from the input string.
-/// This function returns a vector of top–level forms.
+/// Parse all top-level forms from the input string.
 pub fn loads_all(s: &str) -> Result<Vec<SExp>, ParseError> {
     let mut forms = Vec::new();
     let mut parser = Parser::new(s, "nil", "t", None, ';');
     let chars: Vec<char> = s.chars().collect();
     while parser.pos < chars.len() {
-        // Skip whitespace and comments.
         while parser.pos < chars.len() {
             let c = chars[parser.pos];
             if c.is_whitespace() {
@@ -262,12 +302,11 @@ pub fn loads_all(s: &str) -> Result<Vec<SExp>, ParseError> {
         if parser.pos >= chars.len() {
             break;
         }
-        // Expect each top-level form to begin with '('.
         if chars[parser.pos] != '(' {
-            return Err(ParseError::UnexpectedContent(format!(
-                "Expected '(' at position {}",
-                parser.pos
-            )));
+            return Err(ParseError::UnexpectedContent(
+                format!("Expected '(' at position {}", parser.pos),
+                parser.current_line(),
+            ));
         }
         let form = parser.parse_sexp()?;
         forms.push(form);
@@ -275,37 +314,8 @@ pub fn loads_all(s: &str) -> Result<Vec<SExp>, ParseError> {
     Ok(forms)
 }
 
-pub fn dumps(exp: &SExp, pretty: bool) -> String {
-    if pretty {
-        dumps_pretty(exp, "  ", 0)
-    } else {
-        exp.to_string()
-    }
-}
-
-fn dumps_pretty(exp: &SExp, indent: &str, level: usize) -> String {
-    match exp {
-        SExp::String(_) | SExp::Symbol(_) => exp.to_string(),
-        SExp::List(items) if items.is_empty() => "()".to_string(),
-        SExp::List(items) => {
-            let indent_str = indent.repeat(level + 1);
-            let items_str: Vec<String> = items
-                .iter()
-                .map(|x| dumps_pretty(x, indent, level + 1))
-                .collect();
-            format!(
-                "(\n{}{}\n{})",
-                indent_str,
-                items_str.join(&format!("\n{}", indent_str)),
-                indent.repeat(level)
-            )
-        }
-        SExp::Quoted(inner) => format!("'{}", dumps_pretty(inner, indent, level)),
-    }
-}
-
 // ======================================================================
-// DSL Evaluator implementation
+// DSL Evaluator definitions and context
 // ======================================================================
 
 #[derive(Debug, Clone)]
@@ -319,46 +329,90 @@ impl Value {
     fn as_str(&self) -> Result<&str, EvalError> {
         match self {
             Value::Str(s) => Ok(s),
-            _ => Err(EvalError::Other("Expected string value".into())),
+            _ => Err(EvalError::Other {
+                message: "Expected string value".to_string(),
+                line: 0,
+            }),
         }
     }
 }
 
 #[derive(Debug)]
 enum EvalError {
-    UndefinedVariable(String),
-    UnknownFunction(String),
-    InvalidFunctionCall,
-    NonLiteralInQuoted,
-    InterpolationDepthExceeded,
+    UndefinedVariable {
+        message: String,
+        line: usize,
+    },
+    UnknownFunction {
+        message: String,
+        line: usize,
+    },
+    InvalidFunctionCall {
+        message: String,
+        line: usize,
+    },
+    NonLiteralInQuoted {
+        message: String,
+        line: usize,
+    },
+    InterpolationDepthExceeded {
+        message: String,
+        line: usize,
+    },
     TypeError {
         var: String,
         value: String,
         allowed: Vec<String>,
+        line: usize,
     },
-    ExecutionError(String),
-    Other(String),
+    ExecutionError {
+        message: String,
+        line: usize,
+    },
+    Other {
+        message: String,
+        line: usize,
+    },
 }
 
 impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            EvalError::UndefinedVariable(var) => write!(f, "Undefined variable: {}", var),
-            EvalError::UnknownFunction(func) => write!(f, "Unknown function: {}", func),
-            EvalError::InvalidFunctionCall => write!(f, "Invalid function call"),
-            EvalError::NonLiteralInQuoted => write!(f, "Non–literal value in quoted expression"),
-            EvalError::InterpolationDepthExceeded => write!(f, "Interpolation depth exceeded"),
+            EvalError::UndefinedVariable { message, line } => {
+                write!(f, "Undefined variable: {} (at line {})", message, line)
+            }
+            EvalError::UnknownFunction { message, line } => {
+                write!(f, "Unknown function: {} (at line {})", message, line)
+            }
+            EvalError::InvalidFunctionCall { message, line } => {
+                write!(f, "Invalid function call: {} (at line {})", message, line)
+            }
+            EvalError::NonLiteralInQuoted { message, line } => write!(
+                f,
+                "Non–literal value in quoted expression: {} (at line {})",
+                message, line
+            ),
+            EvalError::InterpolationDepthExceeded { message, line } => write!(
+                f,
+                "Interpolation depth exceeded: {} (at line {})",
+                message, line
+            ),
             EvalError::TypeError {
                 var,
                 value,
                 allowed,
+                line,
             } => write!(
                 f,
-                "Type error for variable {}: value {} is not one of allowed: {:?}",
-                var, value, allowed
+                "Type error for variable {}: value {} is not allowed (allowed: {:?}) (at line {})",
+                var, value, allowed, line
             ),
-            EvalError::ExecutionError(s) => write!(f, "Execution error: {}", s),
-            EvalError::Other(s) => write!(f, "Error: {}", s),
+            EvalError::ExecutionError { message, line } => {
+                write!(f, "Execution error: {} (at line {})", message, line)
+            }
+            EvalError::Other { message, line } => {
+                write!(f, "Error: {} (at line {})", message, line)
+            }
         }
     }
 }
@@ -371,6 +425,7 @@ struct Context {
     types: HashMap<String, Vec<String>>,
     defs: HashMap<String, String>,
     tasks: HashMap<String, Task>,
+    groups: HashMap<String, Task>, // Group-level info.
 }
 
 impl Context {
@@ -381,14 +436,15 @@ impl Context {
             types: HashMap::new(),
             defs: HashMap::new(),
             tasks: HashMap::new(),
+            groups: HashMap::new(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
 struct Task {
-    name: String,  // fully qualified (e.g. "eval.accuracy")
-    title: String, // a short description
+    name: String, // Fully qualified (e.g. "eval.accuracy")
+    title: String,
     desc: Option<String>,
     meta: HashMap<String, String>,
     cmd: Option<String>,
@@ -398,26 +454,350 @@ struct Task {
     props: HashMap<String, String>,
 }
 
+// ======================================================================
+// Modified interpolate: now accepts a line number parameter.
+// ======================================================================
+
+fn interpolate(s: &str, env: &HashMap<String, String>, line: usize) -> Result<String, EvalError> {
+    let mut result = s.to_string();
+    let re = Regex::new(r"\{([^}]+)\}").unwrap();
+    for _ in 0..10 {
+        if !re.is_match(&result) {
+            return Ok(result);
+        }
+        let mut replaced = result.clone();
+        for cap in re.captures_iter(&result) {
+            let key = &cap[1];
+            if let Some(val) = env.get(key) {
+                replaced = replaced.replace(&format!("{{{}}}", key), val);
+            } else {
+                return Err(EvalError::UndefinedVariable {
+                    message: format!("{} (in interpolation)", key),
+                    line,
+                });
+            }
+        }
+        result = replaced;
+    }
+    if re.is_match(&result) {
+        Err(EvalError::InterpolationDepthExceeded {
+            message: "(in interpolation)".to_string(),
+            line,
+        })
+    } else {
+        Ok(result)
+    }
+}
+
+// ======================================================================
+// DSL top–level forms processing functions
+// ======================================================================
+
+fn dumps(exp: &SExp, pretty: bool) -> String {
+    if pretty {
+        dumps_pretty(exp, "  ", 0)
+    } else {
+        exp.to_string()
+    }
+}
+
+fn dumps_pretty(exp: &SExp, indent: &str, level: usize) -> String {
+    match exp {
+        SExp::String(s, _) | SExp::Symbol(s, _) => s.to_string(),
+        SExp::List(items, _) if items.is_empty() => "()".to_string(),
+        SExp::List(items, _) => {
+            let indent_str = indent.repeat(level + 1);
+            let items_str: Vec<String> = items
+                .iter()
+                .map(|x| dumps_pretty(x, indent, level + 1))
+                .collect();
+            format!(
+                "(\n{}{}\n{})",
+                indent_str,
+                items_str.join(&format!("\n{}", indent_str)),
+                indent.repeat(level)
+            )
+        }
+        SExp::Quoted(inner, _) => format!("'{}", dumps_pretty(inner, indent, level)),
+    }
+}
+
+// ======================================================================
+// DSL Evaluator Context and Task definitions
+// ======================================================================
+
+fn process_forms(forms: &[SExp], ctx: &mut Context) -> Result<(), EvalError> {
+    for form in forms {
+        if let SExp::List(items, form_line) = form {
+            if items.is_empty() {
+                continue;
+            }
+            if let SExp::Symbol(ref form_name, _) = items[0] {
+                match form_name.as_str() {
+                    "base-cmd" => {
+                        if items.len() != 2 {
+                            return Err(EvalError::Other {
+                                message: "base-cmd requires one argument".to_string(),
+                                line: *form_line,
+                            });
+                        }
+                        if let SExp::String(s, _) = &items[1] {
+                            ctx.base_cmd = Some(s.clone());
+                        } else {
+                            return Err(EvalError::Other {
+                                message: "base-cmd argument must be a string".to_string(),
+                                line: *form_line,
+                            });
+                        }
+                    }
+                    "load-env" => {
+                        if items.len() != 2 {
+                            return Err(EvalError::Other {
+                                message: "load-env requires one argument".to_string(),
+                                line: *form_line,
+                            });
+                        }
+                        if let SExp::String(fname, line) = &items[1] {
+                            load_env(fname).map_err(|e| EvalError::Other {
+                                message: format!("{} (in load-env)", e),
+                                line: *line,
+                            })?;
+                        } else {
+                            return Err(EvalError::Other {
+                                message: "load-env argument must be a string".to_string(),
+                                line: *form_line,
+                            });
+                        }
+                    }
+                    "load-config" => {
+                        if items.len() != 2 {
+                            return Err(EvalError::Other {
+                                message: "load-config requires one argument".to_string(),
+                                line: *form_line,
+                            });
+                        }
+                        if let SExp::String(fname, line) = &items[1] {
+                            let content = fs::read_to_string(fname).map_err(|e| {
+                                EvalError::Other { message: format!("Error reading config file '{}': {}. Please ensure the file exists and is accessible.", fname, e), line: *line }
+                            })?;
+                            let json: JsonValue =
+                                serde_json::from_str(&content).map_err(|e| EvalError::Other {
+                                    message: format!(
+                                        "Error parsing JSON in config file '{}': {}.",
+                                        fname, e
+                                    ),
+                                    line: *line,
+                                })?;
+                            ctx.config = Some(json);
+                        } else {
+                            return Err(EvalError::Other {
+                                message: "load-config argument must be a string".to_string(),
+                                line: *form_line,
+                            });
+                        }
+                    }
+                    "types" => {
+                        for type_def in &items[1..] {
+                            if let SExp::List(def_items, def_line) = type_def {
+                                if def_items.len() != 2 {
+                                    return Err(EvalError::Other { message: format!("Malformed type definition: expected exactly 2 parts, but found {} in: {}", def_items.len(), dumps(type_def, false)), line: *def_line });
+                                }
+                                let type_name = if let SExp::Symbol(s, _) = &def_items[0] {
+                                    s.clone()
+                                } else {
+                                    return Err(EvalError::Other {
+                                        message: format!(
+                                            "Invalid type name in type definition: {}",
+                                            dumps(&def_items[0], false)
+                                        ),
+                                        line: *def_line,
+                                    });
+                                };
+                                let allowed_val = eval_expr(&def_items[1], &ctx.defs, ctx)
+                                    .map_err(|e| EvalError::Other {
+                                        message: format!(
+                                            "Error evaluating allowed-values for type '{}': {}",
+                                            type_name, e
+                                        ),
+                                        line: *def_line,
+                                    })?;
+                                let allowed = match allowed_val {
+                                    Value::List(v) => v,
+                                    Value::Str(s) => vec![s],
+                                    _ => {
+                                        return Err(EvalError::Other { message: format!("Type allowed-values for '{}' must be a list or string, but got: {}", type_name, dumps(&def_items[1], false)), line: *def_line });
+                                    }
+                                };
+                                ctx.types.insert(type_name, allowed);
+                            } else {
+                                return Err(EvalError::Other {
+                                    message: format!(
+                                        "Invalid type definition: expected a list, got: {}",
+                                        dumps(type_def, false)
+                                    ),
+                                    line: 0,
+                                });
+                            }
+                        }
+                    }
+                    "def" => {
+                        for def_item in &items[1..] {
+                            if let SExp::List(parts, def_line) = def_item {
+                                if parts.len() != 2 {
+                                    return Err(EvalError::Other {
+                                        message: "Each def entry must have a key and a value"
+                                            .to_string(),
+                                        line: *def_line,
+                                    });
+                                }
+                                let (var_name, type_opt) = match &parts[0] {
+                                    SExp::Symbol(s, _) => (s.clone(), None),
+                                    SExp::List(inner, _) if inner.len() == 2 => {
+                                        let raw_var = if let SExp::Symbol(s, _) = &inner[0] {
+                                            s.trim_start_matches('[').to_string()
+                                        } else {
+                                            return Err(EvalError::Other {
+                                                message: "Invalid def key".to_string(),
+                                                line: *def_line,
+                                            });
+                                        };
+                                        let raw_type = if let SExp::Symbol(s, _) = &inner[1] {
+                                            s.trim_end_matches(']').to_string()
+                                        } else {
+                                            return Err(EvalError::Other {
+                                                message: "Invalid def type".to_string(),
+                                                line: *def_line,
+                                            });
+                                        };
+                                        (raw_var, Some(raw_type))
+                                    }
+                                    _ => {
+                                        return Err(EvalError::Other {
+                                            message: "Invalid def key format".to_string(),
+                                            line: *def_line,
+                                        })
+                                    }
+                                };
+                                let val = eval_expr(&parts[1], &ctx.defs, ctx).map_err(|e| {
+                                    EvalError::Other {
+                                        message: format!(
+                                            "Error evaluating def entry for variable '{}': {}",
+                                            var_name, e
+                                        ),
+                                        line: *def_line,
+                                    }
+                                })?;
+                                let val_str = match val {
+                                    Value::Str(s) => s,
+                                    _ => String::new(),
+                                };
+                                if let Some(tname) = type_opt {
+                                    if let Some(allowed) = ctx.types.get(&tname) {
+                                        if !allowed.contains(&val_str) {
+                                            return Err(EvalError::TypeError {
+                                                var: var_name.clone(),
+                                                value: val_str.clone(),
+                                                allowed: allowed.clone(),
+                                                line: *def_line,
+                                            });
+                                        }
+                                    }
+                                }
+                                ctx.defs.insert(var_name, val_str);
+                            } else {
+                                return Err(EvalError::Other {
+                                    message: "Invalid def entry (expected a list)".to_string(),
+                                    line: 0,
+                                });
+                            }
+                        }
+                    }
+                    "task" => {
+                        let task = process_task(items, None).map_err(|e| EvalError::Other {
+                            message: format!("Error processing task: {}", e),
+                            line: items[0].line(),
+                        })?;
+                        ctx.tasks.insert(task.name.clone(), task);
+                    }
+                    "group" => {
+                        if let SExp::List(items, group_line) = form {
+                            if items.len() < 3 {
+                                return Err(EvalError::Other {
+                                    message: "Group definition too short".to_string(),
+                                    line: *group_line,
+                                });
+                            }
+                            let group_name = if let SExp::Symbol(s, _) = &items[1] {
+                                s.clone()
+                            } else {
+                                return Err(EvalError::Other {
+                                    message: "Group name must be a symbol".to_string(),
+                                    line: *group_line,
+                                });
+                            };
+                            process_group(items, ctx).map_err(|e| EvalError::Other {
+                                message: format!("Error processing group '{}': {}", group_name, e),
+                                line: *group_line,
+                            })?;
+                        }
+                    }
+                    other => {
+                        return Err(EvalError::Other {
+                            message: format!("Unknown top-level form: {}", other),
+                            line: items[0].line(),
+                        });
+                    }
+                }
+            } else {
+                return Err(EvalError::Other {
+                    message: "Expected a symbol at the beginning of the form".to_string(),
+                    line: *form_line,
+                });
+            }
+        } else {
+            return Err(EvalError::Other {
+                message: "Expected a list for a top-level form".to_string(),
+                line: 0,
+            });
+        }
+    }
+    Ok(())
+}
+
 fn eval_expr(exp: &SExp, env: &HashMap<String, String>, ctx: &Context) -> Result<Value, EvalError> {
     match exp {
-        SExp::String(s) => {
-            let interped = interpolate(s, env)?;
+        SExp::String(s, _) => {
+            // Interpolate the string and propagate errors with the line number from exp.
+            let interped = interpolate(s, env, exp.line()).map_err(|e| EvalError::Other {
+                message: format!("{} (in string)", e),
+                line: exp.line(),
+            })?;
             Ok(Value::Str(interped))
         }
-        SExp::Symbol(s) => {
+        SExp::Symbol(s, line) => {
             if let Some(val) = env.get(s) {
                 Ok(Value::Str(val.clone()))
             } else {
-                Err(EvalError::UndefinedVariable(s.clone()))
+                Err(EvalError::UndefinedVariable {
+                    message: s.clone(),
+                    line: *line,
+                })
             }
         }
-        SExp::List(list) => {
+        SExp::List(list, _) => {
             if list.is_empty() {
                 return Ok(Value::None);
             }
+            // The function name is expected to be the first element.
+            let func_line = list[0].line();
             let func = match &list[0] {
-                SExp::Symbol(s) => s.as_str(),
-                _ => return Err(EvalError::InvalidFunctionCall),
+                SExp::Symbol(s, _) => s.as_str(),
+                _ => {
+                    return Err(EvalError::InvalidFunctionCall {
+                        message: "Function call must start with a symbol".to_string(),
+                        line: func_line,
+                    })
+                }
             };
             match func {
                 "or" => {
@@ -443,10 +823,16 @@ fn eval_expr(exp: &SExp, env: &HashMap<String, String>, ctx: &Context) -> Result
                 }
                 "if" => {
                     if list.len() != 4 {
-                        return Err(EvalError::InvalidFunctionCall);
+                        return Err(EvalError::InvalidFunctionCall {
+                            message: "if requires exactly 3 arguments".to_string(),
+                            line: func_line,
+                        });
                     }
                     let cond = eval_expr(&list[1], env, ctx)?;
-                    let cond_val = cond.as_str()?;
+                    let cond_val = cond.as_str().map_err(|_| EvalError::Other {
+                        message: "Condition must be a string".to_string(),
+                        line: list[1].line(),
+                    })?;
                     if cond_val.trim() == "true" {
                         eval_expr(&list[2], env, ctx)
                     } else {
@@ -455,21 +841,45 @@ fn eval_expr(exp: &SExp, env: &HashMap<String, String>, ctx: &Context) -> Result
                 }
                 "equal?" => {
                     if list.len() != 3 {
-                        return Err(EvalError::InvalidFunctionCall);
+                        return Err(EvalError::InvalidFunctionCall {
+                            message: "equal? requires exactly 2 arguments".to_string(),
+                            line: func_line,
+                        });
                     }
                     let a = eval_expr(&list[1], env, ctx)?;
-                    let a = a.as_str()?.trim();
+                    let a_str = a
+                        .as_str()
+                        .map_err(|_| EvalError::Other {
+                            message: "Expected string".to_string(),
+                            line: list[1].line(),
+                        })?
+                        .trim();
                     let b = eval_expr(&list[2], env, ctx)?;
-                    let b = b.as_str()?.trim();
+                    let b_str = b
+                        .as_str()
+                        .map_err(|_| EvalError::Other {
+                            message: "Expected string".to_string(),
+                            line: list[2].line(),
+                        })?
+                        .trim();
                     Ok(Value::Str(
-                        if a == b { "true" } else { "false" }.to_string(),
+                        if a_str == b_str { "true" } else { "false" }.to_string(),
                     ))
                 }
                 "env" => {
                     if list.len() != 2 {
-                        return Err(EvalError::InvalidFunctionCall);
+                        return Err(EvalError::InvalidFunctionCall {
+                            message: "env requires one argument".to_string(),
+                            line: func_line,
+                        });
                     }
-                    let var = eval_expr(&list[1], env, ctx)?.as_str()?.to_string();
+                    let var = eval_expr(&list[1], env, ctx)?
+                        .as_str()
+                        .map_err(|_| EvalError::Other {
+                            message: "Expected string".to_string(),
+                            line: list[1].line(),
+                        })?
+                        .to_string();
                     match env::var(&var) {
                         Ok(val) => Ok(Value::Str(val)),
                         Err(_) => Ok(Value::None),
@@ -477,9 +887,18 @@ fn eval_expr(exp: &SExp, env: &HashMap<String, String>, ctx: &Context) -> Result
                 }
                 "conf" => {
                     if list.len() != 2 {
-                        return Err(EvalError::InvalidFunctionCall);
+                        return Err(EvalError::InvalidFunctionCall {
+                            message: "conf requires one argument".to_string(),
+                            line: func_line,
+                        });
                     }
-                    let key = eval_expr(&list[1], env, ctx)?.as_str()?.to_string();
+                    let key = eval_expr(&list[1], env, ctx)?
+                        .as_str()
+                        .map_err(|_| EvalError::Other {
+                            message: "Expected string".to_string(),
+                            line: list[1].line(),
+                        })?
+                        .to_string();
                     if let Some(cfg) = &ctx.config {
                         if let Some(val) = cfg.get(&key) {
                             if let Some(s) = val.as_str() {
@@ -493,7 +912,10 @@ fn eval_expr(exp: &SExp, env: &HashMap<String, String>, ctx: &Context) -> Result
                     let output = Command::new("git")
                         .args(["rev-parse", "--show-toplevel"])
                         .output()
-                        .map_err(|e| EvalError::ExecutionError(e.to_string()))?;
+                        .map_err(|e| EvalError::ExecutionError {
+                            message: format!("Git error: {}", e),
+                            line: func_line,
+                        })?;
                     let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     Ok(Value::Str(s))
                 }
@@ -503,42 +925,74 @@ fn eval_expr(exp: &SExp, env: &HashMap<String, String>, ctx: &Context) -> Result
                 }
                 "shell" => {
                     if list.len() != 2 {
-                        return Err(EvalError::InvalidFunctionCall);
+                        return Err(EvalError::InvalidFunctionCall {
+                            message: "shell requires one argument".to_string(),
+                            line: func_line,
+                        });
                     }
-                    let cmd_str = eval_expr(&list[1], env, ctx)?.as_str()?.to_string();
+                    let cmd_str = eval_expr(&list[1], env, ctx)?
+                        .as_str()
+                        .map_err(|_| EvalError::Other {
+                            message: "Expected string".to_string(),
+                            line: list[1].line(),
+                        })?
+                        .to_string();
                     let output = Command::new("sh")
                         .arg("-c")
                         .arg(&cmd_str)
                         .output()
-                        .map_err(|e| EvalError::ExecutionError(e.to_string()))?;
+                        .map_err(|e| EvalError::ExecutionError {
+                            message: format!("Shell execution error: {}", e),
+                            line: func_line,
+                        })?;
                     let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     Ok(Value::Str(s))
                 }
                 "from-shell" => {
                     if list.len() != 2 {
-                        return Err(EvalError::InvalidFunctionCall);
+                        return Err(EvalError::InvalidFunctionCall {
+                            message: "from-shell requires one argument".to_string(),
+                            line: func_line,
+                        });
                     }
-                    let cmd_str = eval_expr(&list[1], env, ctx)?.as_str()?.to_string();
+                    let cmd_str = eval_expr(&list[1], env, ctx)?
+                        .as_str()
+                        .map_err(|_| EvalError::Other {
+                            message: "Expected string".to_string(),
+                            line: list[1].line(),
+                        })?
+                        .to_string();
                     let output = Command::new("sh")
                         .arg("-c")
                         .arg(&cmd_str)
                         .output()
-                        .map_err(|e| EvalError::ExecutionError(e.to_string()))?;
+                        .map_err(|e| EvalError::ExecutionError {
+                            message: format!("from-shell error: {}", e),
+                            line: func_line,
+                        })?;
                     let s = String::from_utf8_lossy(&output.stdout);
                     let parts: Vec<String> = s.split_whitespace().map(|s| s.to_string()).collect();
                     Ok(Value::List(parts))
                 }
-                _ => Err(EvalError::UnknownFunction(func.to_string())),
+                _ => Err(EvalError::UnknownFunction {
+                    message: func.to_string(),
+                    line: func_line,
+                }),
             }
         }
-        SExp::Quoted(inner) => match &**inner {
-            SExp::List(items) => {
+        SExp::Quoted(inner, line) => match &**inner {
+            SExp::List(items, _) => {
                 let mut vec = Vec::new();
                 for item in items {
                     match item {
-                        SExp::String(s) => vec.push(s.clone()),
-                        SExp::Symbol(s) => vec.push(s.clone()),
-                        _ => return Err(EvalError::NonLiteralInQuoted),
+                        SExp::String(s, _) => vec.push(s.clone()),
+                        SExp::Symbol(s, _) => vec.push(s.clone()),
+                        _ => {
+                            return Err(EvalError::NonLiteralInQuoted {
+                                message: "(in quoted expression)".to_string(),
+                                line: *line,
+                            })
+                        }
                     }
                 }
                 Ok(Value::List(vec))
@@ -547,221 +1001,21 @@ fn eval_expr(exp: &SExp, env: &HashMap<String, String>, ctx: &Context) -> Result
         },
     }
 }
-
-fn interpolate(s: &str, env: &HashMap<String, String>) -> Result<String, EvalError> {
-    let mut result = s.to_string();
-    let re = Regex::new(r"\{([^}]+)\}").unwrap();
-    for _ in 0..10 {
-        if !re.is_match(&result) {
-            return Ok(result);
-        }
-        let mut replaced = result.clone();
-        for cap in re.captures_iter(&result) {
-            let key = &cap[1];
-            if let Some(val) = env.get(key) {
-                replaced = replaced.replace(&format!("{{{}}}", key), val);
-            } else {
-                return Err(EvalError::UndefinedVariable(key.to_string()));
-            }
-        }
-        result = replaced;
-    }
-    if re.is_match(&result) {
-        Err(EvalError::InterpolationDepthExceeded)
-    } else {
-        Ok(result)
-    }
-}
-
-// ======================================================================
-// DSL top–level forms processing
-// ======================================================================
-
-fn process_forms(forms: &[SExp], ctx: &mut Context) -> Result<(), EvalError> {
-    for form in forms {
-        if let SExp::List(items) = form {
-            if items.is_empty() {
-                continue;
-            }
-            if let SExp::Symbol(ref form_name) = items[0] {
-                match form_name.as_str() {
-                    "base-cmd" => {
-                        if items.len() != 2 {
-                            return Err(EvalError::Other("base-cmd requires one argument".into()));
-                        }
-                        if let SExp::String(s) = &items[1] {
-                            ctx.base_cmd = Some(s.clone());
-                        } else {
-                            return Err(EvalError::Other(
-                                "base-cmd argument must be a string".into(),
-                            ));
-                        }
-                    }
-                    "load-env" => {
-                        if items.len() != 2 {
-                            return Err(EvalError::Other("load-env requires one argument".into()));
-                        }
-                        if let SExp::String(fname) = &items[1] {
-                            load_env(fname)?;
-                        } else {
-                            return Err(EvalError::Other(
-                                "load-env argument must be a string".into(),
-                            ));
-                        }
-                    }
-                    "load-config" => {
-                        if items.len() != 2 {
-                            return Err(EvalError::Other(
-                                "load-config requires one argument".into(),
-                            ));
-                        }
-                        if let SExp::String(fname) = &items[1] {
-                            let content = fs::read_to_string(fname).map_err(|e| {
-                                EvalError::Other(format!(
-                                    "Error reading config file '{}': {}. Please ensure the file exists and is accessible.",
-                                    fname, e
-                                ))
-                            })?;
-                            let json: JsonValue = serde_json::from_str(&content).map_err(|e| {
-                                EvalError::Other(format!(
-                                    "Error parsing JSON in config file '{}': {}.",
-                                    fname, e
-                                ))
-                            })?;
-                            ctx.config = Some(json);
-                        } else {
-                            return Err(EvalError::Other(
-                                "load-config argument must be a string".into(),
-                            ));
-                        }
-                    }
-                    "types" => {
-                        for type_def in &items[1..] {
-                            if let SExp::List(def_items) = type_def {
-                                if def_items.len() != 2 {
-                                    return Err(EvalError::Other(format!(
-                                        "Malformed type definition: expected exactly 2 parts (type name and allowed values), but found {} parts in: {}. This may indicate that your DSL file is not correctly separated into top-level forms.",
-                                        def_items.len(),
-                                        dumps(type_def, false)
-                                    )));
-                                }
-                                let type_name = if let SExp::Symbol(s) = &def_items[0] {
-                                    s.clone()
-                                } else {
-                                    return Err(EvalError::Other(format!(
-                                        "Invalid type name in type definition: {}",
-                                        dumps(&def_items[0], false)
-                                    )));
-                                };
-                                let allowed_val = eval_expr(&def_items[1], &ctx.defs, ctx)?;
-                                let allowed = match allowed_val {
-                                    Value::List(v) => v,
-                                    Value::Str(s) => vec![s],
-                                    _ => {
-                                        return Err(EvalError::Other(format!(
-                                            "Type allowed-values for '{}' must be a list or string, but got: {}",
-                                            type_name,
-                                            dumps(&def_items[1], false)
-                                        )))
-                                    }
-                                };
-                                ctx.types.insert(type_name, allowed);
-                            } else {
-                                return Err(EvalError::Other(format!(
-                                    "Invalid type definition: expected a list, got: {}",
-                                    dumps(type_def, false)
-                                )));
-                            }
-                        }
-                    }
-                    "def" => {
-                        for def_item in &items[1..] {
-                            if let SExp::List(parts) = def_item {
-                                if parts.len() != 2 {
-                                    return Err(EvalError::Other(
-                                        "Each def entry must have a key and a value".into(),
-                                    ));
-                                }
-                                let (var_name, type_opt) = match &parts[0] {
-                                    SExp::Symbol(s) => (s.clone(), None),
-                                    SExp::List(inner) if inner.len() == 2 => {
-                                        let raw_var = if let SExp::Symbol(s) = &inner[0] {
-                                            s.trim_start_matches('[').to_string()
-                                        } else {
-                                            return Err(EvalError::Other("Invalid def key".into()));
-                                        };
-                                        let raw_type = if let SExp::Symbol(s) = &inner[1] {
-                                            s.trim_end_matches(']').to_string()
-                                        } else {
-                                            return Err(EvalError::Other(
-                                                "Invalid def type".into(),
-                                            ));
-                                        };
-                                        (raw_var, Some(raw_type))
-                                    }
-                                    _ => {
-                                        return Err(EvalError::Other(
-                                            "Invalid def key format".into(),
-                                        ))
-                                    }
-                                };
-                                let val = eval_expr(&parts[1], &ctx.defs, ctx)?;
-                                let val_str = match val {
-                                    Value::Str(s) => s,
-                                    _ => String::new(),
-                                };
-                                if let Some(tname) = type_opt {
-                                    if let Some(allowed) = ctx.types.get(&tname) {
-                                        if !allowed.contains(&val_str) {
-                                            return Err(EvalError::TypeError {
-                                                var: var_name.clone(),
-                                                value: val_str.clone(),
-                                                allowed: allowed.clone(),
-                                            });
-                                        }
-                                    }
-                                }
-                                ctx.defs.insert(var_name, val_str);
-                            } else {
-                                return Err(EvalError::Other("Invalid def entry".into()));
-                            }
-                        }
-                    }
-                    "task" => {
-                        let task = process_task(items, None)?;
-                        ctx.tasks.insert(task.name.clone(), task);
-                    }
-                    "group" => {
-                        process_group(items, ctx)?;
-                    }
-                    other => {
-                        return Err(EvalError::Other(format!(
-                            "Unknown top-level form: {}",
-                            other
-                        )))
-                    }
-                }
-            } else {
-                return Err(EvalError::Other(
-                    "Expected a symbol at the beginning of the form".into(),
-                ));
-            }
-        } else {
-            return Err(EvalError::Other(
-                "Expected a list for a top-level form".into(),
-            ));
-        }
-    }
-    Ok(())
-}
-
 fn process_task(items: &[SExp], parent: Option<&Task>) -> Result<Task, EvalError> {
     if items.len() < 3 {
-        return Err(EvalError::Other("Task definition too short".into()));
+        return Err(EvalError::Other {
+            message: "Task definition too short".to_string(),
+            line: items[0].line(),
+        });
     }
     let raw_name = match &items[1] {
-        SExp::Symbol(s) => s.clone(),
-        _ => return Err(EvalError::Other("Task name must be a symbol".into())),
+        SExp::Symbol(s, _) => s.clone(),
+        _ => {
+            return Err(EvalError::Other {
+                message: "Task name must be a symbol".to_string(),
+                line: items[0].line(),
+            })
+        }
     };
     let name = if let Some(p) = parent {
         format!("{}.{}", p.name, raw_name)
@@ -769,8 +1023,13 @@ fn process_task(items: &[SExp], parent: Option<&Task>) -> Result<Task, EvalError
         raw_name
     };
     let title = match &items[2] {
-        SExp::String(s) => s.clone(),
-        _ => return Err(EvalError::Other("Task title must be a string".into())),
+        SExp::String(s, _) => s.clone(),
+        _ => {
+            return Err(EvalError::Other {
+                message: "Task title must be a string".to_string(),
+                line: items[0].line(),
+            })
+        }
     };
     let mut task = Task {
         name: name.clone(),
@@ -784,11 +1043,11 @@ fn process_task(items: &[SExp], parent: Option<&Task>) -> Result<Task, EvalError
         props: HashMap::new(),
     };
     for prop in &items[3..] {
-        if let SExp::List(prop_items) = prop {
+        if let SExp::List(prop_items, _) = prop {
             if prop_items.is_empty() {
                 continue;
             }
-            let key = if let SExp::Symbol(s) = &prop_items[0] {
+            let key = if let SExp::Symbol(s, _) = &prop_items[0] {
                 s.as_str()
             } else {
                 continue;
@@ -796,21 +1055,21 @@ fn process_task(items: &[SExp], parent: Option<&Task>) -> Result<Task, EvalError
             match key {
                 "desc" => {
                     if prop_items.len() >= 2 {
-                        if let SExp::String(s) = &prop_items[1] {
+                        if let SExp::String(s, _) = &prop_items[1] {
                             task.desc = Some(s.clone());
                         }
                     }
                 }
                 "meta" => {
                     for meta_prop in &prop_items[1..] {
-                        if let SExp::List(pair) = meta_prop {
+                        if let SExp::List(pair, _) = meta_prop {
                             if pair.len() == 2 {
                                 let mkey = match &pair[0] {
-                                    SExp::Symbol(s) | SExp::String(s) => s.clone(),
+                                    SExp::Symbol(s, _) | SExp::String(s, _) => s.clone(),
                                     _ => continue,
                                 };
                                 let mval = match &pair[1] {
-                                    SExp::Symbol(s) | SExp::String(s) => s.clone(),
+                                    SExp::Symbol(s, _) | SExp::String(s, _) => s.clone(),
                                     _ => continue,
                                 };
                                 task.meta.insert(mkey, mval);
@@ -820,37 +1079,37 @@ fn process_task(items: &[SExp], parent: Option<&Task>) -> Result<Task, EvalError
                 }
                 "cmd" => {
                     if prop_items.len() >= 2 {
-                        if let SExp::String(s) = &prop_items[1] {
+                        if let SExp::String(s, _) = &prop_items[1] {
                             task.cmd = Some(s.clone());
                         }
                     }
                 }
                 "shell" => {
                     if prop_items.len() >= 2 {
-                        if let SExp::String(s) = &prop_items[1] {
+                        if let SExp::String(s, _) = &prop_items[1] {
                             task.shell = Some(s.clone());
                         }
                     }
                 }
                 "params" => {
                     if prop_items.len() >= 2 {
-                        if let SExp::String(s) = &prop_items[1] {
+                        if let SExp::String(s, _) = &prop_items[1] {
                             task.params = Some(s.clone());
                         }
                     }
                 }
                 "steps" => {
                     for step in &prop_items[1..] {
-                        if let SExp::Symbol(s) = step {
+                        if let SExp::Symbol(s, _) = step {
                             task.steps.push(s.clone());
                         }
                     }
                 }
                 _ => {
                     if prop_items.len() >= 2 {
-                        if let SExp::String(s) = &prop_items[1] {
+                        if let SExp::String(s, _) = &prop_items[1] {
                             task.props.insert(key.to_string(), s.clone());
-                        } else if let SExp::Symbol(s) = &prop_items[1] {
+                        } else if let SExp::Symbol(s, _) = &prop_items[1] {
                             task.props.insert(key.to_string(), s.clone());
                         }
                     }
@@ -871,15 +1130,28 @@ fn process_task(items: &[SExp], parent: Option<&Task>) -> Result<Task, EvalError
 
 fn process_group(items: &[SExp], ctx: &mut Context) -> Result<(), EvalError> {
     if items.len() < 3 {
-        return Err(EvalError::Other("Group definition too short".into()));
+        return Err(EvalError::Other {
+            message: "Group definition too short".to_string(),
+            line: items[0].line(),
+        });
     }
     let group_name = match &items[1] {
-        SExp::Symbol(s) => s.clone(),
-        _ => return Err(EvalError::Other("Group name must be a symbol".into())),
+        SExp::Symbol(s, _) => s.clone(),
+        _ => {
+            return Err(EvalError::Other {
+                message: "Group name must be a symbol".to_string(),
+                line: items[0].line(),
+            })
+        }
     };
     let group_title = match &items[2] {
-        SExp::String(s) => s.clone(),
-        _ => return Err(EvalError::Other("Group title must be a string".into())),
+        SExp::String(s, _) => s.clone(),
+        _ => {
+            return Err(EvalError::Other {
+                message: "Group title must be a string".to_string(),
+                line: items[0].line(),
+            })
+        }
     };
     let mut group_task = Task {
         name: group_name.clone(),
@@ -893,29 +1165,46 @@ fn process_group(items: &[SExp], ctx: &mut Context) -> Result<(), EvalError> {
         props: HashMap::new(),
     };
     for prop in &items[3..] {
-        if let SExp::List(prop_items) = prop {
+        if let SExp::List(prop_items, _) = prop {
             if prop_items.is_empty() {
                 continue;
             }
-            if let SExp::Symbol(key) = &prop_items[0] {
+            if let SExp::Symbol(key, _) = &prop_items[0] {
                 match key.as_str() {
                     "desc" => {
                         if prop_items.len() >= 2 {
-                            if let SExp::String(s) = &prop_items[1] {
+                            if let SExp::String(s, _) = &prop_items[1] {
                                 group_task.desc = Some(s.clone());
+                            }
+                        }
+                    }
+                    "meta" => {
+                        for meta_prop in &prop_items[1..] {
+                            if let SExp::List(pair, _) = meta_prop {
+                                if pair.len() == 2 {
+                                    let mkey = match &pair[0] {
+                                        SExp::Symbol(s, _) | SExp::String(s, _) => s.clone(),
+                                        _ => continue,
+                                    };
+                                    let mval = match &pair[1] {
+                                        SExp::Symbol(s, _) | SExp::String(s, _) => s.clone(),
+                                        _ => continue,
+                                    };
+                                    group_task.meta.insert(mkey, mval);
+                                }
                             }
                         }
                     }
                     "params" => {
                         if prop_items.len() >= 2 {
-                            if let SExp::String(s) = &prop_items[1] {
+                            if let SExp::String(s, _) = &prop_items[1] {
                                 group_task.params = Some(s.clone());
                             }
                         }
                     }
                     "cmd" => {
                         if prop_items.len() >= 2 {
-                            if let SExp::String(s) = &prop_items[1] {
+                            if let SExp::String(s, _) = &prop_items[1] {
                                 group_task.cmd = Some(s.clone());
                             }
                         }
@@ -925,10 +1214,11 @@ fn process_group(items: &[SExp], ctx: &mut Context) -> Result<(), EvalError> {
             }
         }
     }
+    ctx.groups.insert(group_name.clone(), group_task.clone());
     for prop in &items[3..] {
-        if let SExp::List(prop_items) = prop {
+        if let SExp::List(prop_items, _) = prop {
             if !prop_items.is_empty() {
-                if let SExp::Symbol(key) = &prop_items[0] {
+                if let SExp::Symbol(key, _) = &prop_items[0] {
                     if key.as_str() == "task" {
                         let task = process_task(prop_items, Some(&group_task))?;
                         ctx.tasks.insert(task.name.clone(), task);
@@ -940,23 +1230,22 @@ fn process_group(items: &[SExp], ctx: &mut Context) -> Result<(), EvalError> {
     Ok(())
 }
 
+// ======================================================================
+// Environment loader (strips quotes from values)
+// ======================================================================
+
 fn load_env(fname: &str) -> Result<(), EvalError> {
     let content = fs::read_to_string(fname).map_err(|e| {
-        EvalError::Other(format!(
-            "Error reading .env file '{}': {}. Please ensure the file exists in the expected location.",
-            fname, e
-        ))
+        EvalError::Other { message: format!("Error reading .env file '{}': {}. Please ensure the file exists in the expected location.", fname, e), line: 0 }
     })?;
     for line in content.lines() {
         let trimmed = line.trim();
-        // Skip comments and empty lines.
         if trimmed.starts_with('#') || trimmed.is_empty() {
             continue;
         }
         if let Some(idx) = trimmed.find('=') {
-            let key = trimmed[..idx].trim();
+            let key = &trimmed[..idx].trim();
             let raw_value = trimmed[idx + 1..].trim();
-            // If the value is enclosed in double quotes, remove them.
             let value =
                 if raw_value.starts_with('"') && raw_value.ends_with('"') && raw_value.len() >= 2 {
                     &raw_value[1..raw_value.len() - 1]
@@ -969,6 +1258,10 @@ fn load_env(fname: &str) -> Result<(), EvalError> {
     Ok(())
 }
 
+// ======================================================================
+// Task execution (printing group and task info; errors include line numbers)
+// ======================================================================
+
 fn execute_task(
     name: &str,
     ctx: &Context,
@@ -978,8 +1271,9 @@ fn execute_task(
     if executed.contains(name) {
         return Ok(());
     }
-    let task = ctx.tasks.get(name).ok_or_else(|| {
-        EvalError::Other(format!("Task '{}' not found (or dependency missing)", name))
+    let task = ctx.tasks.get(name).ok_or_else(|| EvalError::Other {
+        message: format!("Task '{}' not found (or dependency missing)", name),
+        line: 0,
     })?;
     for step in &task.steps {
         execute_task(step, ctx, extra_args, executed)?;
@@ -993,56 +1287,74 @@ fn execute_task(
             cmd_tpl.clone()
         }
     } else {
-        return Err(EvalError::Other(format!(
-            "Task '{}' has no command to execute",
-            name
-        )));
+        return Err(EvalError::Other {
+            message: format!("Task '{}' has no command to execute", name),
+            line: 0,
+        });
     };
     if !extra_args.is_empty() {
         let extra = extra_args.join(" ");
         cmd_line = format!("{} {}", cmd_line, extra);
     }
-    // Merge the global definitions with the task's own properties
     let mut interp_env = ctx.defs.clone();
     interp_env.extend(task.props.clone());
-    let cmd_line = interpolate(&cmd_line, &interp_env)?;
-    println!("Executing task {}: {}", name, cmd_line);
-    // let status = Command::new("sh")
-    //     .arg("-c")
-    //     .arg(&cmd_line)
-    //     .status()
-    //     .map_err(|e| EvalError::ExecutionError(e.to_string()))?;
-    // if !status.success() {
-    //     return Err(EvalError::ExecutionError(format!(
-    //         "Task '{}' exited with status {}",
-    //         name, status
-    //     )));
-    // }
+    let cmd_line = interpolate(
+        &cmd_line,
+        &interp_env,
+        task.props
+            .get("line")
+            .and_then(|l| l.parse().ok())
+            .unwrap_or(0),
+    )?;
+
+    println!("Executing task {}:", name);
+    if let Some(desc) = &task.desc {
+        println!("  Description: {}", desc);
+    }
+    if !task.meta.is_empty() {
+        println!("  Metadata: {:?}", task.meta);
+    }
+    println!("  Command: {}", cmd_line);
+
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(&cmd_line)
+        .status()
+        .map_err(|e| EvalError::ExecutionError {
+            message: e.to_string(),
+            line: 0,
+        })?;
+    if !status.success() {
+        return Err(EvalError::ExecutionError {
+            message: format!("Task '{}' exited with status {}", name, status),
+            line: 0,
+        });
+    }
     executed.insert(name.to_string());
     Ok(())
 }
 
 // ======================================================================
-// Main – load DSL file, process it, and run CLI commands.
+// Main function
 // ======================================================================
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let path = Path::new("spec.dsl");
-    let dsl_content =
-        fs::read_to_string(path).map_err(|e| format!("Error reading DSL file spec.dsl: {}", e))?;
-    // Parse all top-level forms.
+    let cli = Cli::parse();
+
+    let path = Path::new(&cli.file);
+    let dsl_content = fs::read_to_string(path)
+        .map_err(|e| format!("Error reading DSL file {}: {}", cli.file, e))?;
     let forms = loads_all(&dsl_content).map_err(|e| format!("Parse error: {}", e))?;
     let mut ctx = Context::new();
     process_forms(&forms, &mut ctx)?;
-    let args: Vec<String> = env::args().skip(1).collect();
-    if args.is_empty() || args[0] == "--list" {
+
+    if cli.list {
         println!("Available tasks:");
-        let verbose = args.iter().any(|s| s == "--verbose");
         let mut names: Vec<_> = ctx.tasks.keys().collect();
         names.sort();
         for name in names {
             if let Some(task) = ctx.tasks.get(name) {
-                if verbose {
+                if cli.verbose {
                     println!(
                         "  {}: {}",
                         task.name,
@@ -1054,38 +1366,52 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         return Ok(());
+    }
+
+    // If no tasks are specified, default to "default"
+    let tasks_to_run = if cli.tasks.is_empty() {
+        vec!["default".to_string()]
     } else {
-        let mut task_names = Vec::new();
-        let mut extra_args = Vec::new();
-        let mut iter = args.iter();
-        while let Some(arg) = iter.next() {
-            if arg == "--" {
-                extra_args = iter.map(|s| s.to_string()).collect();
-                break;
-            } else {
-                task_names.push(arg.to_string());
+        cli.tasks.clone()
+    };
+
+    let mut executed = HashSet::new();
+    for tname in tasks_to_run {
+        if let Some(group) = ctx.groups.get(&tname) {
+            println!("Group {}:", tname);
+            if let Some(desc) = &group.desc {
+                println!("  Description: {}", desc);
             }
-        }
-        let mut executed = HashSet::new();
-        for tname in task_names {
-            if ctx.tasks.contains_key(&tname) {
-                execute_task(&tname, &ctx, &extra_args, &mut executed)?;
+            if !group.meta.is_empty() {
+                println!("  Metadata: {:?}", group.meta);
+            }
+            let prefix = format!("{}.", tname);
+            let mut keys: Vec<_> = ctx
+                .tasks
+                .keys()
+                .filter(|k| k.starts_with(&prefix))
+                .cloned()
+                .collect();
+            keys.sort();
+            for key in keys {
+                execute_task(&key, &ctx, &cli.extra_args, &mut executed)?;
+            }
+        } else if ctx.tasks.contains_key(&tname) {
+            execute_task(&tname, &ctx, &cli.extra_args, &mut executed)?;
+        } else {
+            let prefix = format!("{}.", tname);
+            let mut keys: Vec<_> = ctx
+                .tasks
+                .keys()
+                .filter(|k| k.starts_with(&prefix))
+                .cloned()
+                .collect();
+            if keys.is_empty() {
+                eprintln!("Task or group '{}' not found.", tname);
             } else {
-                let mut found = false;
-                let prefix = format!("{}.", tname);
-                let mut keys: Vec<_> = ctx
-                    .tasks
-                    .keys()
-                    .filter(|k| k.starts_with(&prefix))
-                    .cloned()
-                    .collect();
                 keys.sort();
                 for key in keys {
-                    execute_task(&key, &ctx, &extra_args, &mut executed)?;
-                    found = true;
-                }
-                if !found {
-                    eprintln!("Task or group '{}' not found.", tname);
+                    execute_task(&key, &ctx, &cli.extra_args, &mut executed)?;
                 }
             }
         }
