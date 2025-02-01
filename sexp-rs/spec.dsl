@@ -9,8 +9,8 @@
  (metrics (from-shell "python list_metrics.py")))
 
 (def
- ([model model] (or (env "MODEL") (conf "model") "small"))
- ([dataset dataset] (or (env "DATASET") "test"))
+ ((model model) (or (env "MODEL") (conf "model") "small"))
+ ((dataset dataset) (or (env "DATASET") "test"))
  (root (git-root))
  (timestamp (current-timestamp))
  (debug (if (equal? model "small") "true" "false"))
