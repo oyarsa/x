@@ -1,7 +1,7 @@
 ;; vim: ft=racket
 (base-cmd "python")
-(load-env ".env")
-(load-config "config.json")
+(load-env "example/.env")
+(load-config "example/config.json")
 
 (types
  (model '("small" "medium" "large"))
