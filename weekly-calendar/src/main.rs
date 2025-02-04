@@ -9,8 +9,21 @@ const UNDERLINE: &str = "\x1B[4m";
 const BOLD: &str = "\x1B[1m";
 const RESET: &str = "\x1B[0m";
 
+const HELP_TEMPLATE: &str = "\
+{about}
+
+{usage-heading} {usage}
+
+{all-args}
+
+{name} {version}
+{author}
+";
+
 #[derive(Parser, Debug)]
-#[command(author, version, about)]
+#[command(version, about, author)]
+#[command(arg_required_else_help = true)]
+#[command(help_template = HELP_TEMPLATE)]
 struct Args {
     /// Start date in YYYY-MM-DD format
     start_date: String,
