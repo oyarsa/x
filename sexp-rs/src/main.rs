@@ -32,8 +32,20 @@ use thiserror::Error;
 // CLI definition
 // ======================================================================
 
+const HELP_TEMPLATE: &str = "\
+{about}
+
+{usage-heading} {usage}
+
+{all-args}
+
+{name} {version}
+{author}
+";
+
 #[derive(ClapParser, Debug)]
-#[command(name = "dsl", about = "DSL Task Runner", version, author)]
+#[command(version, about, author)]
+#[command(help_template = HELP_TEMPLATE)]
 struct Cli {
     /// Path to the DSL file
     #[arg(short, long, default_value = "tasks.dsl")]
