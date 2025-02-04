@@ -1,0 +1,11 @@
+[package]
+name = "rblame"
+version = "0.0.1"
+edition = "2021"
+authors = ["Italo Silva <italo@maleldil.com>"]
+license = "GPL-3.0-or-later"
+description = "Pretty print git blame of a file"
+
+[dependencies]
+clap = { version = "4.5.27", features = ["derive"] }
+regex = "1.11.1"
