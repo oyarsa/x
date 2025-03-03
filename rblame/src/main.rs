@@ -4,9 +4,10 @@
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(clippy::too_many_lines)]
 
-use std::io::{self, Write};
+use std::env;
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use clap::Parser;
 use regex::Regex;
@@ -183,8 +184,30 @@ fn main() {
         }
     }
 
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
+    send_to_pager(&entries, &field_lengths);
+}
+
+fn send_to_pager(entries: &[Entry], field_lengths: &[(&str, usize)]) {
+    // Get pager command from PAGER env var, defaulting to "less"
+    let pager_cmd = env::var("PAGER").unwrap_or_else(|_| "less".to_string());
+
+    let mut cmd = if pager_cmd.contains("less") {
+        let mut cmd = Command::new(&pager_cmd);
+        // -R preserves ANSI color codes
+        cmd.arg("-R");
+        cmd
+    } else {
+        // For other pagers, use as-is
+        Command::new(&pager_cmd)
+    };
+
+    let mut pager = match cmd.stdin(Stdio::piped()).spawn() {
+        Ok(child) => child,
+        Err(e) => die!("Failed to spawn pager: {}", e),
+    };
+
+    let pager_stdin = pager.stdin.take().expect("Failed to open pager stdin");
+    let mut writer = BufWriter::new(pager_stdin);
 
     for entry in entries {
         let colors = [
@@ -214,6 +237,18 @@ fn main() {
             .collect::<Vec<String>>()
             .join(" ");
 
-        writeln!(stdout, "{} {}", formatted, entry.code_line).unwrap();
+        writeln!(writer, "{} {}", formatted, entry.code_line)
+            .unwrap_or_else(|e| die!("Failed to write to pager: {}", e));
+    }
+
+    drop(writer);
+
+    match pager.wait() {
+        Ok(status) => {
+            if !status.success() {
+                eprintln!("Warning: Pager exited with status: {status}");
+            }
+        }
+        Err(e) => eprintln!("Warning: Failed to wait for pager: {e}"),
     }
 }
