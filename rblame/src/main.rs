@@ -37,7 +37,6 @@ enum Color {
     Red,
     Green,
     Yellow,
-    Blue,
     Magenta,
     Reset,
 }
@@ -48,7 +47,6 @@ impl Color {
             Color::Red => "\x1b[31m",
             Color::Green => "\x1b[32m",
             Color::Yellow => "\x1b[33m",
-            Color::Blue => "\x1b[34m",
             Color::Magenta => "\x1b[35m",
             Color::Reset => "\x1b[0m",
         }
@@ -59,7 +57,6 @@ struct Entry {
     short_hash: String,
     author: String,
     summary: String,
-    filename: String,
     lineno: String,
     code_line: String,
 }
@@ -119,7 +116,6 @@ fn main() {
         let lineno = parts[2].to_string();
         let mut author = String::new();
         let mut summary = String::new();
-        let mut filename = String::new();
 
         i += 1;
         while i < lines.len() && !lines[i].starts_with('\t') && !hash_regex.is_match(lines[i]) {
@@ -128,8 +124,6 @@ fn main() {
                 author = author_str.to_string();
             } else if let Some(summary_str) = line.strip_prefix("summary ") {
                 summary = summary_str.to_string();
-            } else if let Some(fname) = line.strip_prefix("filename ") {
-                filename = fname.to_string();
             }
             i += 1;
         }
@@ -143,7 +137,6 @@ fn main() {
             short_hash,
             author,
             summary,
-            filename,
             lineno,
             code_line,
         });
@@ -152,7 +145,6 @@ fn main() {
 
     let max_widths = [
         ("short_hash", 10),
-        ("filename", 30),
         ("author", 20),
         ("summary", 50),
         ("lineno", 6),
@@ -165,7 +157,6 @@ fn main() {
                 .iter()
                 .map(|e| match field {
                     "short_hash" => e.short_hash.len(),
-                    "filename" => e.filename.len(),
                     "author" => e.author.len(),
                     "summary" => e.summary.len(),
                     "lineno" => e.lineno.len(),
@@ -183,7 +174,6 @@ fn main() {
             let value = match field {
                 "author" => &mut entry.author,
                 "summary" => &mut entry.summary,
-                "filename" => &mut entry.filename,
                 _ => continue,
             };
             if value.len() > max_width {
@@ -199,7 +189,6 @@ fn main() {
     for entry in entries {
         let colors = [
             ("short_hash", Color::Red),
-            ("filename", Color::Blue),
             ("author", Color::Green),
             ("summary", Color::Yellow),
             ("lineno", Color::Magenta),
@@ -215,7 +204,6 @@ fn main() {
                     .unwrap();
                 let value = match field {
                     "short_hash" => &entry.short_hash,
-                    "filename" => &entry.filename,
                     "author" => &entry.author,
                     "summary" => &entry.summary,
                     "lineno" => &entry.lineno,
