@@ -5,7 +5,7 @@
 #![allow(clippy::too_many_lines)]
 
 use std::env;
-use std::io::{BufWriter, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -31,6 +31,10 @@ const HELP_TEMPLATE: &str = "\
 struct Args {
     /// File to get blame
     file: PathBuf,
+
+    /// Disable pager and print directly to stdout
+    #[arg(long)]
+    no_pager: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -96,7 +100,7 @@ fn main() {
             String::from_utf8_lossy(&output.stderr)
         ),
         Ok(output) => String::from_utf8_lossy(&output.stdout).to_string(),
-        Err(e) => die!("Failed to execute git: {}", e),
+        Err(e) => die!("Failed to execute git: {e}"),
     };
 
     let hash_regex = Regex::new(r"^[0-9a-f]{40}").expect("Regex must be valid.");
@@ -184,39 +188,27 @@ fn main() {
         }
     }
 
-    send_to_pager(&entries, &field_lengths);
+    if args.no_pager {
+        print_to_stdout(&entries, &field_lengths);
+    } else {
+        print_to_pager(&entries, &field_lengths);
+    }
 }
 
-fn send_to_pager(entries: &[Entry], field_lengths: &[(&str, usize)]) {
-    // Get pager command from PAGER env var, defaulting to "less"
-    let pager_cmd = env::var("PAGER").unwrap_or_else(|_| "less".to_string());
-
-    let mut cmd = if pager_cmd.contains("less") {
-        let mut cmd = Command::new(&pager_cmd);
-        // -R preserves ANSI color codes
-        cmd.arg("-R");
-        cmd
-    } else {
-        // For other pagers, use as-is
-        Command::new(&pager_cmd)
-    };
-
-    let mut pager = match cmd.stdin(Stdio::piped()).spawn() {
-        Ok(child) => child,
-        Err(e) => die!("Failed to spawn pager: {}", e),
-    };
-
-    let pager_stdin = pager.stdin.take().expect("Failed to open pager stdin");
-    let mut writer = BufWriter::new(pager_stdin);
+/// Write formatted lines to a writer
+fn write_entries<W: Write>(
+    mut writer: W,
+    entries: &[Entry],
+    field_lengths: &[(&str, usize)],
+) -> io::Result<()> {
+    let colors = [
+        ("short_hash", Color::Red),
+        ("author", Color::Green),
+        ("summary", Color::Yellow),
+        ("lineno", Color::Magenta),
+    ];
 
     for entry in entries {
-        let colors = [
-            ("short_hash", Color::Red),
-            ("author", Color::Green),
-            ("summary", Color::Yellow),
-            ("lineno", Color::Magenta),
-        ];
-
         let formatted = colors
             .iter()
             .map(|&(field, color)| {
@@ -237,11 +229,47 @@ fn send_to_pager(entries: &[Entry], field_lengths: &[(&str, usize)]) {
             .collect::<Vec<String>>()
             .join(" ");
 
-        writeln!(writer, "{} {}", formatted, entry.code_line)
-            .unwrap_or_else(|e| die!("Failed to write to pager: {}", e));
+        let formatted_line = format!("{} {}", formatted, entry.code_line);
+        writeln!(writer, "{formatted_line}")?;
     }
 
-    drop(writer);
+    Ok(())
+}
+
+fn print_to_stdout(entries: &[Entry], field_lengths: &[(&str, usize)]) {
+    let stdout = io::stdout();
+    let writer = BufWriter::new(stdout.lock());
+
+    if let Err(e) = write_entries(writer, entries, field_lengths) {
+        die!("Failed to write to stdout: {e}");
+    }
+}
+
+fn print_to_pager(entries: &[Entry], field_lengths: &[(&str, usize)]) {
+    // Get pager command from PAGER env var, defaulting to "less"
+    let pager_cmd = env::var("PAGER").unwrap_or_else(|_| "less".to_string());
+
+    let mut cmd = if pager_cmd.contains("less") {
+        let mut cmd = Command::new(&pager_cmd);
+        // -R preserves ANSI color codes
+        cmd.arg("-R");
+        cmd
+    } else {
+        // For other pagers, use as-is
+        Command::new(&pager_cmd)
+    };
+
+    let mut pager = match cmd.stdin(Stdio::piped()).spawn() {
+        Ok(child) => child,
+        Err(e) => die!("Failed to spawn pager: {e}"),
+    };
+
+    let pager_stdin = pager.stdin.take().expect("Failed to open pager stdin");
+    let writer = BufWriter::new(pager_stdin);
+
+    if let Err(e) = write_entries(writer, entries, field_lengths) {
+        die!("Failed to write to pager: {e}");
+    }
 
     match pager.wait() {
         Ok(status) => {
