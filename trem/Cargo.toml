@@ -5,6 +5,7 @@ edition = "2021"
 authors = ["Italo Silva <italo@maleldil.com>"]
 license = "GPL-3.0-or-later"
 description = "Utility tools"
+rust-version = "1.78"
 
 [dependencies]
 clap = { version = "4.5.31", features = ["derive"] }
