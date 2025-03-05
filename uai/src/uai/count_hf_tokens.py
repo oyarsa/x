@@ -10,14 +10,14 @@ key with the text to tokenise.
 """
 
 # pyright: basic
-import argparse
 import json
 import os
-from typing import Any, cast
+import sys
+from pathlib import Path
+from typing import Annotated, Any, cast
 
+import typer
 from beartype.door import is_bearable
-
-from scripts.util import HelpOnErrorArgumentParser
 
 # Disable "None of PyTorch, TensorFlow >= 2.0, or Flax have been found." warning.
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
@@ -41,30 +41,19 @@ def longest_sequence(
     return longest_seq, longest_split
 
 
-def main() -> None:
-    parser = HelpOnErrorArgumentParser(__doc__)
-    parser.add_argument(
-        "input",
-        type=argparse.FileType("r"),
-        help="Input file path",
-        nargs="?",
-        default="-",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="google/flan-t5-large",
-        help="Model name. Default: %(default)s.",
-    )
-    parser.add_argument(
-        "--print-sequence",
-        "-P",
-        help="Print the longest sequence",
-        action="store_true",
-    )
-    args = parser.parse_args()
-
-    data = json.load(args.input)
+def main(
+    input: Annotated[Path, typer.Argument(help="Input file path")] = Path("-"),
+    model: Annotated[
+        str, typer.Option("--model", "-m", help="Model name.")
+    ] = "google/flan-t5-large",
+    print_sequence: Annotated[
+        bool, typer.Option("--print-sequence", "-P", help="Print the longest sequence")
+    ] = False,
+) -> None:
+    if input.name == "-":
+        data = json.load(sys.stdin)
+    else:
+        data = json.loads(input.read_text())
 
     data_keys = {"input"}
     if not is_bearable(data, list[dict[str, Any]]):
@@ -72,13 +61,9 @@ def main() -> None:
     if missing := data_keys - data[0].keys():
         raise SystemExit(f"Invalid JSON format. Missing keys: {missing}.")
 
-    longest_seq, longest_split = longest_sequence(args.model, data)
+    longest_seq, longest_split = longest_sequence(model, data)
 
-    if args.print_sequence:
+    if print_sequence:
         print(longest_seq)
     print(f"{len(longest_seq)} tokens.")
     print(f"{len(longest_split)} tokens (split).")
-
-
-if __name__ == "__main__":
-    main()

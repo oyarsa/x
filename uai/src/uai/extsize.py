@@ -50,15 +50,6 @@ def human_readable_size(size: float) -> str:
     raise ValueError("unreachable")
 
 
-app = typer.Typer(
-    context_settings={"help_option_names": ["-h", "--help"]},
-    add_completion=False,
-    rich_markup_mode="rich",
-    pretty_exceptions_show_locals=False,
-)
-
-
-@app.command(help=__doc__)
 def main(
     root_dir: Annotated[
         Path, typer.Argument(help="Starting directory to find files.")
@@ -89,7 +80,3 @@ def main(
     print(
         f"{'TOTAL':<{ext_col_width}} {total_count:<10} {human_readable_size(total_size):<15}"
     )
-
-
-if __name__ == "__main__":
-    app()

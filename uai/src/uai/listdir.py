@@ -1,7 +1,10 @@
+"""List contents of directory, including last modified time."""
+
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 
-from scripts.util import HelpOnErrorArgumentParser
+import typer
 
 
 def modified_time(path: Path) -> datetime:
@@ -127,23 +130,15 @@ def pretty_print_entries(paths: list[Path], reverse: bool = False) -> str:
     )
 
 
-def main() -> None:
-    parser = HelpOnErrorArgumentParser(__doc__)
-    parser.add_argument(
-        "paths",
-        type=Path,
-        nargs="*",
-        default=[Path(".")],
-        help="Paths to pretty print (default: current directory)",
-    )
-    parser.add_argument(
-        "-r", "--reverse", action="store_true", help="Reverse the order of the entries"
-    )
-    args = parser.parse_args()
-
-    output = pretty_print_entries(args.paths, args.reverse)
+def main(
+    paths: Annotated[
+        list[Path] | None,
+        typer.Argument(help="Paths to pretty print. Defaults to current dir."),
+    ] = None,
+    reverse: Annotated[
+        bool, typer.Option("--reverse", "-r", help="Reverse the order of entries")
+    ] = False,
+) -> None:
+    paths = paths or [Path(".")]
+    output = pretty_print_entries(paths, reverse)
     print(output)
-
-
-if __name__ == "__main__":
-    main()

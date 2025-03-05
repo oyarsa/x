@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"Convert JSON to Markdown table."
+"""Convert JSON to Markdown table.
 
-import argparse
+The input JSON file can be provided as an argument or piped in through stdin.
+"""
+
 import json
 import os
 import sys
-from typing import Any
+from pathlib import Path
+from typing import Annotated, Any
 
+import typer
 from beartype.door import is_bearable
-
-from scripts.util import HelpOnErrorArgumentParser
 
 
 def generate_table(headers: list[str], values: list[list[Any]]) -> str:
@@ -44,42 +46,37 @@ def generate_table(headers: list[str], values: list[list[Any]]) -> str:
     return "\n".join([header_line, separator_line, *rows])
 
 
-def main() -> None:
-    parser = HelpOnErrorArgumentParser(__doc__)
-    parser.add_argument(
-        "file",
-        type=argparse.FileType(),
-        default="-",
-        nargs="?",
-        help=(
-            "The file containing the JSON data to convert to a table. If not provided,"
-            " read from stdin."
+def main(
+    file: Annotated[
+        Path,
+        typer.Argument(help="The file containing the JSON data to convert to a table."),
+    ] = Path("-"),
+    fmt: Annotated[
+        str | None,
+        typer.Option(
+            help="Specify the format for one or more columns. Example: --fmt '{:d} age; {:>10} name email"
         ),
-    )
-    parser.add_argument(
-        "--fmt",
-        action="append",
-        nargs="+",
-        metavar=("FORMAT", "COLUMN"),
-        help=(
-            "Specify the format for one or more columns. Example: --fmt '{:d}' age"
-            " --fmt '{:>10}' name email"
-        ),
-    )
-    args = parser.parse_args()
+    ] = None,
+) -> None:
+    if file.name == "-":
+        data = json.load(sys.stdin)
+    else:
+        data = json.loads(file.read_text())
 
-    data = json.load(args.file)
     if not is_bearable(data, list[dict[str, Any]]):
         raise ValueError("Invalid JSON format. Expected a list of objects.")
 
     headers = list(data[0].keys())
 
-    fmt_: list[str] = args.fmt
     formats: dict[str, str] = {}
-    for fmt_option in fmt_ or []:
-        fmt, columns = fmt_option[0], fmt_option[1:]
-        for column in columns:
-            formats[column] = fmt
+    fmt_options = fmt.split(";") if fmt else []
+
+    for fmt_option in fmt_options:
+        opt = fmt_option.strip().split()
+        if len(opt) >= 2:
+            format_str, *columns = opt
+            for column in columns:
+                formats[column] = format_str
 
     values = [
         [
@@ -102,7 +99,3 @@ def main() -> None:
         devnull = os.open(os.devnull, os.O_WRONLY)
         os.dup2(devnull, sys.stdout.fileno())
         sys.exit(1)  # Python exits with error code 1 on EPIPE
-
-
-if __name__ == "__main__":
-    main()

@@ -20,7 +20,7 @@ from typing import BinaryIO, NoReturn
 
 import requests
 
-from scripts.util import HelpOnErrorArgumentParser
+from uai.util import HelpOnErrorArgumentParser
 
 level_emojis = {
     "info": "ℹ️",  # noqa: RUF001

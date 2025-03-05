@@ -15,15 +15,7 @@ from typing import Annotated
 
 import typer
 
-app = typer.Typer(
-    context_settings={"help_option_names": ["-h", "--help"]},
-    add_completion=False,
-    rich_markup_mode="rich",
-    pretty_exceptions_show_locals=False,
-)
 
-
-@app.command(help=__doc__)
 def main(
     path: Annotated[
         Path,
@@ -36,7 +28,3 @@ def main(
     """Display first `count` items in a JSON array from a file or stdin."""
     data = json.loads(sys.stdin.read() if path == Path("-") else path.read_bytes())
     print(json.dumps(data[:count], indent=4))
-
-
-if __name__ == "__main__":
-    app()

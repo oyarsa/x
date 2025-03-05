@@ -1,8 +1,12 @@
-import argparse
-import json
-from typing import Any, TextIO
+"""Convert text table to JSON."""
 
-from scripts.util import HelpOnErrorArgumentParser
+import contextlib
+import json
+import sys
+from pathlib import Path
+from typing import Annotated, Any
+
+import typer
 
 
 def fit_length(
@@ -34,16 +38,13 @@ def clean_value(value: str) -> Any:
 
     conversion_funcs = [int, float, bool_]
     for func in conversion_funcs:
-        try:
+        with contextlib.suppress(ValueError):
             return func(v)
-        except ValueError:
-            pass
 
     return v
 
 
-def parse_data(input: TextIO, separator: str) -> list[dict[str, Any]]:
-    lines = input.readlines()
+def parse_data(lines: list[str], separator: str) -> list[dict[str, Any]]:
     header = [item.strip() for item in lines[0].strip().split(separator)]
 
     data: list[dict[str, Any]] = []
@@ -60,27 +61,15 @@ def parse_data(input: TextIO, separator: str) -> list[dict[str, Any]]:
     return data
 
 
-def main() -> None:
-    parser = HelpOnErrorArgumentParser(__doc__)
-    parser.add_argument(
-        "input",
-        type=argparse.FileType("r"),
-        help="Input file path",
-        nargs="?",
-        default="-",
-    )
-    parser.add_argument(
-        "-s",
-        "--separator",
-        type=str,
-        default="\t",
-        help="Separator character (default: tab)",
-    )
-    args = parser.parse_args()
-
-    parsed_data = parse_data(args.input, args.separator)
+def main(
+    input: Annotated[Path, typer.Argument(help="Input file path")] = Path("-"),
+    separator: Annotated[
+        str, typer.Option("--separator", "-s", help="Separator character")
+    ] = "\t",
+) -> None:
+    if input.name == "-":
+        lines = sys.stdin.readlines()
+    else:
+        lines = input.read_text().splitlines()
+    parsed_data = parse_data(lines, separator)
     print(json.dumps(parsed_data, indent=2, sort_keys=True))
-
-
-if __name__ == "__main__":
-    main()

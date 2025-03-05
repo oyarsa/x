@@ -12,16 +12,15 @@ Currently supports the following config files:
 - Lazygit
 """
 
-import argparse
 import os
 import subprocess
 import sys
 from enum import Enum
 from pathlib import Path
+from typing import Annotated
 
+import typer
 import yaml
-
-from scripts.util import HelpOnErrorArgumentParser
 
 config_files = {
     # Neovim
@@ -106,17 +105,11 @@ def replace_in_file(file_path: Path, old: str, new: str) -> int:
     return count
 
 
-def main() -> None:
-    parser = HelpOnErrorArgumentParser(__doc__)
-    parser.add_argument(
-        "--warn-multiple",
-        action=argparse.BooleanOptionalAction,
-        type=bool,
-        default=True,
-        help="Warn if more than one replacement is made in a file",
-    )
-    args = parser.parse_args()
-
+def main(
+    warn_multiple: Annotated[
+        bool, typer.Option(help="Warn if more than one replacement is made in a file")
+    ] = True,
+) -> None:
     valid_themes = ", ".join(f"'{theme.value}'" for theme in Theme)
     theme_msg = f"Choose from: {valid_themes}"
     try:
@@ -134,14 +127,15 @@ def main() -> None:
         case Theme.CATPPUCCIN_MOCHA:
             current, new = "dark", "light"
 
+    print(f"Changing from {current} to {new}")
+    if input("Are you sure? [y/N] ").strip().lower() != "y":
+        print("Aborting")
+        sys.exit()
+
     for file, values in config_files.items():
         count = replace_in_file(Path(file), values[current], values[new])
-        if args.warn_multiple and count > 1:
+        if warn_multiple and count > 1:
             print(f"Warning: more than one replacement made in {file}.")
 
     for func, values in config_funcs.items():
         func(values[new])
-
-
-if __name__ == "__main__":
-    main()
