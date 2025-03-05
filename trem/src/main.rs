@@ -1,5 +1,6 @@
 mod blame;
 mod jargs;
+mod jhead;
 
 use clap::{Parser, Subcommand};
 
@@ -31,6 +32,9 @@ enum Commands {
 
     /// Run a command on each string in a JSON array
     Jargs(jargs::Args),
+
+    /// Print the first N items of a JSON array
+    Jhead(jhead::Args),
 }
 
 fn main() {
@@ -40,6 +44,12 @@ fn main() {
         Commands::Blame(args) => blame::run(args),
         Commands::Jargs(args) => {
             if let Err(e) = jargs::run(args) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Jhead(args) => {
+            if let Err(e) = jhead::run(args) {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
             }

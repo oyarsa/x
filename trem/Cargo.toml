@@ -1,6 +1,6 @@
 [package]
 name = "trem"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 authors = ["Italo Silva <italo@maleldil.com>"]
 license = "GPL-3.0-or-later"
