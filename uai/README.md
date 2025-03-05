@@ -1,4 +1,4 @@
-# scripts
+# uai
 
 Repository for random scripts that I write over time.
 
@@ -13,15 +13,14 @@ Requirements:
 - uv, pipx or others
 
 ```bash
-> git clone git@github.com:oyarsa/scripts.git
+> git clone git@github.com:oyarsa/x.git
 # Install with uv
-> uv tool install --editable scripts
+> uv tool install --editable uai
 # Or with pipx
-> pipx install --editable scripts
+> pipx install --editable uai
 ```
 
-Scripts should be named with a lead `,` (e.g. `,ntok`) so that they are easy to find in
-the shell.
+The scripts are available under the `uai` executable.
 
 ## License
 

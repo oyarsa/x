@@ -1,5 +1,5 @@
 [project]
-name = "scripts"
+name = "uai"
 version = "0.3.0"
 authors = [
     {name = "Italo Silva", email = "italo@maleldil.com"},
@@ -20,22 +20,7 @@ readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
 
 [project.scripts]
-",ntok" = "scripts.estimate_tokens:app"
-",confusion-matrix" = "scripts.confusion_matrix:main"
-",json-keys" = "scripts.json_keys:main"
-",json-to-table" = "scripts.json_to_table:main"
-",ll" = "scripts.listdir:main"
-",json-shuf" = "scripts.json_shuf:main"
-",tg-notify" = "scripts.tg_notify:main"
-",readtable" = "scripts.readtable:main"
-",count-hf-tokens" = "scripts.count_hf_tokens:main"
-",toggle-theme" = "scripts.toggle_theme:main"
-",rename-json" = "scripts.rename_json:main"
-",json-schema" = "scripts.getschema:main"
-",jfreq" = "scripts.json_freq:app"
-",blame" = "scripts.blame:app"
-",jhead" = "scripts.json_head:app"
-",extsize" = "scripts.extsize:app"
+"uai" = "uai.cli:app"
 
 [tool.uv]
 dev-dependencies = [

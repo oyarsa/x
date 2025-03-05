@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 "Obtain information about the keys of a JSON file containing a list of objects."
 
-import argparse
 import json
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Annotated, Any
 
+import typer
 from beartype.door import is_bearable
-
-from scripts.util import HelpOnErrorArgumentParser
 
 
 @dataclass
@@ -86,35 +85,31 @@ def get_path(data: dict[str, Any], path: str) -> Any:
     return data
 
 
-def main() -> None:
-    parser = HelpOnErrorArgumentParser(__doc__)
-    parser.add_argument(
-        "files",
-        type=argparse.FileType("r"),
-        nargs="*",
-        default=[sys.stdin],
-        help="Paths to the JSON files.",
-    )
-    parser.add_argument(
-        "--count",
-        "-c",
-        action="store_true",
-        help="Add the count of objects with the key.",
-    )
-    parser.add_argument(
-        "--path",
-        "-p",
-        type=str,
-        default=None,
-        help="Path to the key in the JSON object. Example: 'data.attributes'."
-        " Applied to all files.",
-    )
-    args = parser.parse_args()
+def main(
+    files: Annotated[
+        list[Path] | None,
+        typer.Argument(help="Paths to JSON files. If None, read from stdin."),
+    ] = None,
+    count: Annotated[
+        bool, typer.Option(help="Add the count of objects with the key")
+    ] = False,
+    path: Annotated[
+        str | None,
+        typer.Option(
+            help="Path to the key in the JSON object. Example: 'data.attributes'."
+            " Applied to all files."
+        ),
+    ] = None,
+) -> None:
+    files = files or [Path("-")]
+    for file in files:
+        if file.name == "-":
+            data = json.load(sys.stdin)
+        else:
+            data = json.loads(file.read_bytes())
 
-    for file in args.files:
-        data = json.load(file)
-        if args.path:
-            data = get_path(data, args.path)
+        if path:
+            data = get_path(data, path)
 
         if not is_bearable(data, list[dict[str, Any]]):
             print(f"{file.name}: Invalid JSON format. Expected a list of objects.")
@@ -124,13 +119,9 @@ def main() -> None:
             continue
 
         info = analyze_json_file(data)
-        table = render_data(info, len(data), args.count)
+        table = render_data(info, len(data), count)
 
         headers = ["Name", "Type", "Nullable"]
-        if args.count:
+        if count:
             headers.extend(["Count", "%"])
         print(print_table(file.name, headers, table, len(data)), end="\n\n")
-
-
-if __name__ == "__main__":
-    main()

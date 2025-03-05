@@ -598,47 +598,6 @@ wheels = [
 ]
 
 [[package]]
-name = "scripts"
-version = "0.3.0"
-source = { editable = "." }
-dependencies = [
-    { name = "beartype" },
-    { name = "openai" },
-    { name = "pandas" },
-    { name = "pyyaml" },
-    { name = "requests" },
-    { name = "tiktoken" },
-    { name = "tomli" },
-    { name = "transformers" },
-    { name = "typer" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pyright" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "beartype", specifier = ">=0.18.5" },
-    { name = "openai", specifier = ">=1.30.1" },
-    { name = "pandas", specifier = ">=2.2.1" },
-    { name = "pyyaml", specifier = ">=6.0.1" },
-    { name = "requests", specifier = ">=2.31.0" },
-    { name = "tiktoken", specifier = ">=0.6.0" },
-    { name = "tomli", specifier = ">=2.0.1" },
-    { name = "transformers", specifier = ">=4.40.1" },
-    { name = "typer", specifier = ">=0.12.3" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pyright", specifier = ">=1.1.361" },
-    { name = "ruff", specifier = ">=0.4.2" },
-]
-
-[[package]]
 name = "shellingham"
 version = "1.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -785,6 +744,47 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e1/34/943888654477a574a86a98e9896bae89c7aa15078ec29f490fef2f1e5384/tzdata-2024.2.tar.gz", hash = "sha256:7d85cc416e9382e69095b7bdf4afd9e3880418a2413feec7069d533d6b4e31cc", size = 193282 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a6/ab/7e5f53c3b9d14972843a647d8d7a853969a58aecc7559cb3267302c94774/tzdata-2024.2-py2.py3-none-any.whl", hash = "sha256:a48093786cdcde33cad18c2555e8532f34422074448fbc874186f0abd79565cd", size = 346586 },
+]
+
+[[package]]
+name = "uai"
+version = "0.3.0"
+source = { editable = "." }
+dependencies = [
+    { name = "beartype" },
+    { name = "openai" },
+    { name = "pandas" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "tiktoken" },
+    { name = "tomli" },
+    { name = "transformers" },
+    { name = "typer" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beartype", specifier = ">=0.18.5" },
+    { name = "openai", specifier = ">=1.30.1" },
+    { name = "pandas", specifier = ">=2.2.1" },
+    { name = "pyyaml", specifier = ">=6.0.1" },
+    { name = "requests", specifier = ">=2.31.0" },
+    { name = "tiktoken", specifier = ">=0.6.0" },
+    { name = "tomli", specifier = ">=2.0.1" },
+    { name = "transformers", specifier = ">=4.40.1" },
+    { name = "typer", specifier = ">=0.12.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.361" },
+    { name = "ruff", specifier = ">=0.4.2" },
 ]
 
 [[package]]

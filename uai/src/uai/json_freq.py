@@ -8,16 +8,7 @@ from typing import Annotated, Any, cast
 
 import typer
 
-app = typer.Typer(
-    context_settings={"help_option_names": ["-h", "--help"]},
-    add_completion=False,
-    rich_markup_mode="rich",
-    pretty_exceptions_show_locals=False,
-    no_args_is_help=True,
-)
 
-
-@app.command(help=__doc__)
 def main(
     input_path: Annotated[
         Path,
@@ -71,10 +62,6 @@ def display_statistics(counts: Counter[Any]) -> str:
         f"{value:<{padding}}: {count} ({count / total:.2%})"
         for value, count in counts_str
     ]
-    lines.extend(["", f"{"Total":<{padding}}: {total}"])
+    lines.extend(["", f"{'Total':<{padding}}: {total}"])
 
     return "\n".join(lines)
-
-
-if __name__ == "__main__":
-    app()

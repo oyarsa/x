@@ -1,9 +1,11 @@
 """Get schema from JSON file, including nested structures."""
 
-import argparse
 import json
+import sys
+from pathlib import Path
+from typing import Annotated
 
-from scripts.util import HelpOnErrorArgumentParser
+import typer
 
 type Json = float | int | str | bool | None | list[Json] | dict[str, Json]
 
@@ -31,18 +33,13 @@ def get_schema(data: Json) -> Json:
             return {key: get_schema(value) for key, value in d.items()}
 
 
-def main() -> None:
-    parser = HelpOnErrorArgumentParser(__doc__)
-    parser.add_argument("input", type=argparse.FileType(), help="Input JSON data file")
-    parser.add_argument(
-        "output", type=argparse.FileType("w"), help="Output JSON schema file"
-    )
-    args = parser.parse_args()
-
-    data = json.load(args.input)
+def main(
+    input: Annotated[Path, typer.Argument(help="Input JSON data file")],
+    output: Annotated[Path, typer.Argument(help="Output JSON schema file")],
+) -> None:
+    if input.name == "-":
+        data = json.load(sys.stdin)
+    else:
+        data = json.loads(input.read_bytes())
     schema = get_schema(data)
-    args.output.write(json.dumps(schema, indent=2))
-
-
-if __name__ == "__main__":
-    main()
+    output.write_text(json.dumps(schema, indent=2))

@@ -5,15 +5,14 @@ Dependencies:
 - pandas
 """
 
-import argparse
 import json
 from collections import defaultdict
-from typing import Any
+from pathlib import Path
+from typing import Annotated, Any
 
 import pandas as pd  # type: ignore
+import typer
 from beartype.door import is_bearable
-
-from scripts.util import HelpOnErrorArgumentParser
 
 
 def create_confusion_table(
@@ -26,8 +25,8 @@ def create_confusion_table(
         value2 = item.get(field2, "N/A")
         confusion_matrix[value1, value2] += 1
 
-    field1_values = sorted(set(f1 for f1, _ in confusion_matrix))
-    field2_values = sorted(set(f2 for _, f2 in confusion_matrix))
+    field1_values = sorted(set(confusion_matrix))
+    field2_values = sorted({f2 for _, f2 in confusion_matrix.items()})
 
     table_data = [
         [confusion_matrix[(value1, value2)] for value2 in field2_values]
@@ -41,20 +40,14 @@ def create_confusion_table(
     return df
 
 
-def main():
-    parser = HelpOnErrorArgumentParser(__doc__)
-    parser.add_argument("file", type=argparse.FileType(), help="Path to the JSON file")
-    parser.add_argument("field1", type=str, help="Name of the first field")
-    parser.add_argument("field2", type=str, help="Name of the second field")
-    args = parser.parse_args()
-
-    data = json.load(args.file)
+def main(
+    file: Annotated[Path, typer.Argument(help="Path to JSON file")],
+    field1: Annotated[str, typer.Argument(help="Name of the first field.")],
+    field2: Annotated[str, typer.Argument(help="Name of the second field.")],
+):
+    data = json.loads(file.read_bytes())
     if not is_bearable(data, list[dict[str, Any]]):
         raise ValueError("Invalid JSON format. Expected a list of objects.")
 
-    table = create_confusion_table(data, args.field1, args.field2)
+    table = create_confusion_table(data, field1, field2)
     print(table)
-
-
-if __name__ == "__main__":
-    main()

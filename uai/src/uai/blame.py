@@ -27,19 +27,9 @@ def prettify(text: str, width: int, color_code: Colour) -> str:
     return f"{color_code.value}{padded_text}{Colour.RESET.value}"
 
 
-app = typer.Typer(
-    context_settings={"help_option_names": ["-h", "--help"]},
-    add_completion=False,
-    rich_markup_mode="rich",
-    pretty_exceptions_show_locals=False,
-    no_args_is_help=True,
-)
-
-
-@app.command(help=__doc__)
 def main(
     file: Annotated[Path, typer.Argument(help="File to get blame", exists=True)],
-) -> None:
+) -> None:  # sourcery skip: hoist-statement-from-if, low-code-quality
     try:
         output = subprocess.check_output(
             ["git", "blame", "--line-porcelain", str(file)],
@@ -70,6 +60,7 @@ def main(
             code_line = ""
 
             i += 1
+
             # Read the key-value pairs until we get to the code line
             while (
                 i < len(lines)
@@ -129,7 +120,7 @@ def main(
     for entry in entries:
         for field in ["author", "summary", "filename"]:
             if len(entry[field]) > max_widths[field]:
-                entry[field] = entry[field][: max_widths[field] - 1] + "…"
+                entry[field] = f"{entry[field][: max_widths[field] - 1]}…"
 
     typer.echo_via_pager(display(entries, field_lengths))
 
@@ -149,8 +140,4 @@ def display(
         line = " ".join(
             prettify(entry[col], field_lengths[col], colours[col]) for col in colours
         )
-        yield f"{line} {entry["code_line"]}\n"
-
-
-if __name__ == "__main__":
-    app()
+        yield f"{line} {entry['code_line']}\n"
