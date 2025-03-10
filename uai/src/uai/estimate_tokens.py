@@ -22,6 +22,9 @@ def main(
     else:
         text = file.read_text()
 
-    tokens = _GPT_TOKENISER.encode(text)
+    try:
+        num_tokens = len(_GPT_TOKENISER.encode(text))
+    except Exception:
+        num_tokens = len(text.split()) * 1.5
 
-    print(len(tokens))
+    print(num_tokens)
