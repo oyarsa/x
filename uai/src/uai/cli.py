@@ -1,5 +1,9 @@
 """Random utility scripts."""
 
+import importlib.metadata
+import sys
+from typing import Annotated
+
 import typer
 
 from uai import (
@@ -50,6 +54,30 @@ cmds = [
 
 for mod, name in cmds:
     app.command(name=name, help=mod.__doc__)(mod.main)
+
+
+def _version_callback(show: bool) -> None:
+    if show:
+        name = "uai"
+        version = importlib.metadata.version(name)
+        print(f"{name} {version}")
+        sys.exit()
+
+
+@app.callback()
+def main(
+    _: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-V",
+            help="Show version and exit.",
+            callback=_version_callback,
+            is_eager=True,
+        ),
+    ] = False,
+):
+    pass
 
 
 if __name__ == "__main__":
