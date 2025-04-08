@@ -14,6 +14,8 @@ dependencies = [
     "pyyaml>=6.0.1",
     "openai>=1.30.1",
     "beartype>=0.18.5",
+    "plotly-stubs>=0.0.5",
+    "plotly>=6.0.1",
 ]
 requires-python = ">=3.12"
 readme = "README.md"

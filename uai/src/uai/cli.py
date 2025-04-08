@@ -21,6 +21,7 @@ from uai import (
     json_to_table,
     listdir,
     readtable,
+    repomap,
     toggle_theme,
 )
 
@@ -49,6 +50,7 @@ cmds = [
     (json_shuf, "jshuf"),
     (json_to_table, "json2table"),
     (json_rename, "jrename"),
+    (repomap, "repomap"),
     # TODO: convert tg_notify
 ]
 
