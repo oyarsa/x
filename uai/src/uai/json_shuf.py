@@ -21,7 +21,8 @@ def main(
     output: Annotated[Path, typer.Argument(help="Output JSON file")] = Path("-"),
     seed: Annotated[int, typer.Option(help="Random seed")] = 0,
     k: Annotated[
-        int | None, typer.Option(help="Size of the sample to draw from the dataset")
+        int | None,
+        typer.Option("-k", help="Size of the sample to draw from the dataset"),
     ] = None,
 ) -> None:
     if input.name == "-":
