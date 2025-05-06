@@ -10,14 +10,14 @@ key with the text to tokenise.
 """
 
 # pyright: basic
-import json
 import os
-import sys
 from pathlib import Path
 from typing import Annotated, Any, cast
 
 import typer
 from beartype.door import is_bearable
+
+from uai.util import read_json
 
 # Disable "None of PyTorch, TensorFlow >= 2.0, or Flax have been found." warning.
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
@@ -50,10 +50,7 @@ def main(
         bool, typer.Option("--print-sequence", "-P", help="Print the longest sequence")
     ] = False,
 ) -> None:
-    if input.name == "-":
-        data = json.load(sys.stdin)
-    else:
-        data = json.loads(input.read_text())
+    data = read_json(input)
 
     data_keys = {"input"}
     if not is_bearable(data, list[dict[str, Any]]):

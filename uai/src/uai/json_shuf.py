@@ -6,14 +6,14 @@ The output JSON file can be provided as an argument or piped out through stdout.
 A random seed can be provided to ensure reproducibility.
 """
 
-import json
 import random
-import sys
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 from beartype.door import is_bearable
+
+from uai.util import read_json, write_json
 
 
 def main(
@@ -25,10 +25,7 @@ def main(
         typer.Option("-k", help="Size of the sample to draw from the dataset"),
     ] = None,
 ) -> None:
-    if input.name == "-":
-        data = json.load(sys.stdin)
-    else:
-        data = json.loads(input.read_text())
+    data = read_json(input)
 
     if not is_bearable(data, list[Any]):
         raise ValueError("Invalid JSON format. Expected a list.")
@@ -39,7 +36,4 @@ def main(
     else:
         random.shuffle(data)
 
-    if output.name == "-":
-        json.dump(data, sys.stdout, indent=2)
-    else:
-        output.write_text(json.dumps(data, indent=2))
+    write_json(data, output)

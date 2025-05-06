@@ -2,11 +2,12 @@
 
 import contextlib
 import json
-import sys
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+
+from uai.util import read_text
 
 
 def fit_length(
@@ -67,9 +68,6 @@ def main(
         str, typer.Option("--separator", "-s", help="Separator character")
     ] = "\t",
 ) -> None:
-    if input.name == "-":
-        lines = sys.stdin.readlines()
-    else:
-        lines = input.read_text().splitlines()
+    lines = read_text(input).splitlines()
     parsed_data = parse_data(lines, separator)
     print(json.dumps(parsed_data, indent=2, sort_keys=True))

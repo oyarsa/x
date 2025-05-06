@@ -1,11 +1,12 @@
 """Get schema from JSON file, including nested structures."""
 
 import json
-import sys
 from pathlib import Path
 from typing import Annotated
 
 import typer
+
+from uai.util import read_json, write_json
 
 type Json = float | int | str | bool | None | list[Json] | dict[str, Json]
 
@@ -37,13 +38,6 @@ def main(
     input: Annotated[Path, typer.Argument(help="Input JSON data file")] = Path("-"),
     output: Annotated[Path, typer.Argument(help="Output JSON schema file")] = Path("-"),
 ) -> None:
-    if input.name == "-":
-        data = json.load(sys.stdin)
-    else:
-        data = json.loads(input.read_bytes())
+    data = read_json(input)
     schema = get_schema(data)
-
-    if output.name == "-":
-        json.dump(schema, sys.stdout, indent=2)
-    else:
-        output.write_text(json.dumps(schema, indent=2))
+    write_json(schema, output)

@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 "Obtain information about the keys of a JSON file containing a list of objects."
 
-import json
-import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +8,8 @@ from typing import Annotated, Any
 
 import typer
 from beartype.door import is_bearable
+
+from uai.util import read_json
 
 
 @dataclass
@@ -103,10 +103,7 @@ def main(
 ) -> None:
     files = files or [Path("-")]
     for file in files:
-        if file.name == "-":
-            data = json.load(sys.stdin)
-        else:
-            data = json.loads(file.read_bytes())
+        data = read_json(file)
 
         if path:
             data = get_path(data, path)

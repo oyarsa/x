@@ -12,12 +12,12 @@ The mini-language for renaming keys is:
 Only the specified keys will be in the output.
 """
 
-import json
-import sys
 from pathlib import Path
 from typing import Annotated
 
 import typer
+
+from uai.util import read_json, write_json
 
 
 def main(
@@ -34,10 +34,7 @@ def main(
         ),
     ] = None,
 ) -> None:
-    if input_file.name == "-":
-        data = json.load(sys.stdin)
-    else:
-        data = json.loads(input_file.read_bytes())
+    data = read_json(input_file)
 
     rename = rename or []
 
@@ -51,7 +48,4 @@ def main(
 
     new_data = [{new: d[old] for old, new in renames.items()} for d in data]
 
-    if output_file.name == "-":
-        json.dump(new_data, sys.stdout, indent=2)
-    else:
-        output_file.write_text(json.dumps(new_data, indent=2))
+    write_json(new_data, output_file)

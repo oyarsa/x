@@ -4,7 +4,6 @@
 The input JSON file can be provided as an argument or piped in through stdin.
 """
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -12,6 +11,8 @@ from typing import Annotated, Any
 
 import typer
 from beartype.door import is_bearable
+
+from uai.util import read_json
 
 
 def generate_table(headers: list[str], values: list[list[Any]]) -> str:
@@ -58,10 +59,7 @@ def main(
         ),
     ] = None,
 ) -> None:
-    if file.name == "-":
-        data = json.load(sys.stdin)
-    else:
-        data = json.loads(file.read_text())
+    data = read_json(file)
 
     if not is_bearable(data, list[dict[str, Any]]):
         raise ValueError("Invalid JSON format. Expected a list of objects.")
