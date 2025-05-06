@@ -34,12 +34,16 @@ def get_schema(data: Json) -> Json:
 
 
 def main(
-    input: Annotated[Path, typer.Argument(help="Input JSON data file")],
-    output: Annotated[Path, typer.Argument(help="Output JSON schema file")],
+    input: Annotated[Path, typer.Argument(help="Input JSON data file")] = Path("-"),
+    output: Annotated[Path, typer.Argument(help="Output JSON schema file")] = Path("-"),
 ) -> None:
     if input.name == "-":
         data = json.load(sys.stdin)
     else:
         data = json.loads(input.read_bytes())
     schema = get_schema(data)
-    output.write_text(json.dumps(schema, indent=2))
+
+    if output.name == "-":
+        json.dump(schema, sys.stdout, indent=2)
+    else:
+        output.write_text(json.dumps(schema, indent=2))
