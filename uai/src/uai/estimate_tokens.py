@@ -8,7 +8,7 @@ import tiktoken
 import typer
 
 # GPT-4 and later tokeniser.
-_GPT_TOKENISER = tiktoken.get_encoding("cl100k_base")
+_GPT_TOKENISER = tiktoken.get_encoding("o200k_base")
 
 
 def main(
