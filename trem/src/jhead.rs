@@ -1,7 +1,9 @@
 use clap::Parser;
+use flate2::read::GzDecoder;
 use serde_json::Value;
 use std::fs::File;
 use std::io::{self, BufReader, Read};
+use zstd::stream::read::Decoder as ZstdDecoder;
 
 /// Print the first N items of a JSON array.
 #[derive(Parser, Debug)]
@@ -20,7 +22,14 @@ pub fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     let reader: Box<dyn Read> = if args.filename == "-" {
         Box::new(io::stdin())
     } else {
-        Box::new(File::open(&args.filename)?)
+        let file = File::open(&args.filename)?;
+        if args.filename.ends_with(".gz") || args.filename.ends_with(".json.gz") {
+            Box::new(GzDecoder::new(file))
+        } else if args.filename.ends_with(".zst") || args.filename.ends_with(".json.zst") {
+            Box::new(ZstdDecoder::new(file)?)
+        } else {
+            Box::new(file)
+        }
     };
     let mut reader = BufReader::new(reader);
 
