@@ -3,6 +3,7 @@ use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 
+use anyhow::{Context, Result};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
@@ -16,23 +17,25 @@ pub struct Args {
     pub command: Vec<String>,
 }
 
-pub fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(args: &Args) -> Result<()> {
     let mut buffer = String::new();
-    io::stdin().read_to_string(&mut buffer)?;
+    io::stdin()
+        .read_to_string(&mut buffer)
+        .context("Failed to read from stdin")?;
 
-    let data: Value = serde_json::from_str(&buffer)?;
+    let data: Value = serde_json::from_str(&buffer).context("Failed to parse JSON")?;
     let strings = match data {
         Value::Array(arr) => arr
             .iter()
             .filter_map(|v| v.as_str().map(String::from))
             .collect::<Vec<String>>(),
-        _ => return Err("Error: Input must be a JSON array".into()),
+        _ => anyhow::bail!("Input must be a JSON array"),
     };
 
     let pb = Arc::new(Mutex::new(
         ProgressBar::new(strings.len() as u64).with_style(ProgressStyle::default_bar().template(
             "[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {percent}% ETA: {eta_precise}",
-        )?),
+        ).context("Failed to create progress bar style")?),
     ));
 
     let cmd = args.command[0].clone();

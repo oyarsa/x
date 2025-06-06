@@ -1,3 +1,4 @@
+use anyhow::{Context, Result};
 use clap::Parser;
 use flate2::read::GzDecoder;
 use serde_json::Value;
@@ -18,15 +19,15 @@ pub struct Args {
     num_items: usize,
 }
 
-pub fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(args: &Args) -> Result<()> {
     let reader: Box<dyn Read> = if args.filename == "-" {
         Box::new(io::stdin())
     } else {
-        let file = File::open(&args.filename)?;
+        let file = File::open(&args.filename).context("Failed to open file")?;
         if args.filename.ends_with(".gz") || args.filename.ends_with(".json.gz") {
             Box::new(GzDecoder::new(file))
         } else if args.filename.ends_with(".zst") || args.filename.ends_with(".json.zst") {
-            Box::new(ZstdDecoder::new(file)?)
+            Box::new(ZstdDecoder::new(file).context("Failed to create zstd decoder")?)
         } else {
             Box::new(file)
         }
@@ -35,9 +36,11 @@ pub fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
 
     // Check for opening bracket
     let mut byte = [0u8; 1];
-    reader.read_exact(&mut byte)?;
+    reader
+        .read_exact(&mut byte)
+        .context("Failed to read first byte")?;
     if byte[0] != b'[' {
-        return Err("File does not start with an array '[' character".into());
+        anyhow::bail!("File does not start with an array '[' character");
     }
 
     // Skip initial whitespace
@@ -119,7 +122,7 @@ pub fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
                 Err(e) => {
                     eprintln!("Error parsing JSON element: {}", e);
                     eprintln!("Problematic JSON: {}", buffer);
-                    return Err(e.into());
+                    return Err(e).context("Failed to parse JSON element");
                 }
             }
             buffer.clear();
@@ -128,7 +131,10 @@ pub fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("{}", serde_json::to_string_pretty(&items)?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&items).context("Failed to serialize JSON")?
+    );
 
     Ok(())
 }

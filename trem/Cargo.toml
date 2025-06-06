@@ -8,6 +8,7 @@ description = "Utility tools"
 rust-version = "1.78"
 
 [dependencies]
+anyhow = "1.0.98"
 clap = { version = "4.5.31", features = ["derive"] }
 flate2 = "1.1.1"
 indicatif = "0.17.11"
