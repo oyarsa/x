@@ -8,6 +8,7 @@ import typer
 
 from uai import (
     blame,
+    cloc,
     confusion_matrix,
     count_hf_tokens,
     estimate_tokens,
@@ -51,6 +52,7 @@ cmds = [
     (json_to_table, "json2table"),
     (json_rename, "jrename"),
     (repomap, "repomap"),
+    (cloc, "cloc"),
     # TODO: convert tg_notify
 ]
 
