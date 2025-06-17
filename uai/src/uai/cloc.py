@@ -3,10 +3,23 @@
 import json
 import subprocess
 import sys
+from enum import StrEnum
 from typing import Annotated, Any, cast
 
 import typer
 from pydantic import BaseModel
+
+
+class SortColumn(StrEnum):
+    """Valid column names for sorting."""
+
+    FILES = "files"
+    BLANK = "blank"
+    COMMENT = "comment"
+    CODE = "code"
+    CODE_COMMENT = "code+comment"
+    COMMENT_PERCENT = "comment%"
+    TOTAL = "total"
 
 
 class ClocHeader(BaseModel):
@@ -82,7 +95,12 @@ class ClocData(BaseModel):
     files: list[FileStats] | None = None
 
     @classmethod
-    def from_json_dict(cls, data: dict[str, Any], include_files: bool = False) -> "ClocData":
+    def from_json_dict(
+        cls,
+        data: dict[str, Any],
+        include_files: bool = False,
+        sort_by: SortColumn = SortColumn.CODE,
+    ) -> "ClocData":
         """Create ClocData from raw JSON dictionary."""
         header = ClocHeader(**data["header"])
 
@@ -102,8 +120,22 @@ class ClocData(BaseModel):
                         )
                     )
 
-            # Sort languages by code lines (descending)
-            languages.sort(key=lambda x: x.code, reverse=True)
+            # Sort languages by specified column (descending)
+            match sort_by:
+                case SortColumn.FILES:
+                    languages.sort(key=lambda x: x.files, reverse=True)
+                case SortColumn.BLANK:
+                    languages.sort(key=lambda x: x.blank, reverse=True)
+                case SortColumn.COMMENT:
+                    languages.sort(key=lambda x: x.comment, reverse=True)
+                case SortColumn.CODE_COMMENT:
+                    languages.sort(key=lambda x: x.code_comment, reverse=True)
+                case SortColumn.COMMENT_PERCENT:
+                    languages.sort(key=lambda x: x.comment_percentage, reverse=True)
+                case SortColumn.TOTAL:
+                    languages.sort(key=lambda x: x.total, reverse=True)
+                case SortColumn.CODE:
+                    languages.sort(key=lambda x: x.code, reverse=True)
 
         sum_data = cast(dict[str, Any], data["SUM"])
         sum_stats = LanguageStats(
@@ -114,7 +146,7 @@ class ClocData(BaseModel):
             code=int(sum_data["code"]),
         )
 
-        files = None
+        files: list[FileStats] | None = None
         if include_files:
             files = []
             # When using --by-file, files are at the root level
@@ -132,9 +164,22 @@ class ClocData(BaseModel):
                                 code=int(file_dict.get("code", 0)),
                             )
                         )
-            # Sort files by total lines (descending)
+            # Sort files by specified column (descending)
             if files:
-                files.sort(key=lambda x: x.total, reverse=True)
+                match sort_by:
+                    case SortColumn.BLANK:
+                        files.sort(key=lambda x: x.blank, reverse=True)
+                    case SortColumn.COMMENT:
+                        files.sort(key=lambda x: x.comment, reverse=True)
+                    case SortColumn.CODE_COMMENT:
+                        files.sort(key=lambda x: x.code_comment, reverse=True)
+                    case SortColumn.COMMENT_PERCENT:
+                        files.sort(key=lambda x: x.comment_percentage, reverse=True)
+                    case SortColumn.TOTAL:
+                        files.sort(key=lambda x: x.total, reverse=True)
+                    case SortColumn.FILES | SortColumn.CODE:
+                        # FILES column doesn't apply to individual files, fallback to code
+                        files.sort(key=lambda x: x.code, reverse=True)
 
         return cls(header=header, languages=languages, sum_stats=sum_stats, files=files)
 
@@ -169,10 +214,10 @@ def format_cloc_table(cloc_data: ClocData) -> str:
         f"{'comment %':>10} "
         f"{'Total':>8}"
     )
-    
+
     # Create separator line based on actual header length
     separator = " " + "-" * (len(header_row) - 1)
-    
+
     lines.append(separator)
     lines.append(header_row)
     lines.append(separator)
@@ -203,11 +248,11 @@ def format_cloc_table(cloc_data: ClocData) -> str:
 def format_files_table(files: list[FileStats]) -> str:
     """Format file statistics into a table sorted by total lines."""
     lines: list[str] = []
-    
+
     # Calculate column widths
     path_width = max(len(file.path) for file in files)
     path_width = max(path_width, len("File"))
-    
+
     # Header row
     header_row = (
         f" {'File':<{path_width}} "
@@ -218,14 +263,14 @@ def format_files_table(files: list[FileStats]) -> str:
         f"{'comment %':>10} "
         f"{'Total':>8}"
     )
-    
+
     # Create separator line based on actual header length
     separator = " " + "-" * (len(header_row) - 1)
-    
+
     lines.append(separator)
     lines.append(header_row)
     lines.append(separator)
-    
+
     # Data rows
     for file in files:
         row = (
@@ -238,21 +283,27 @@ def format_files_table(files: list[FileStats]) -> str:
             f"{file.total:>8}"
         )
         lines.append(row)
-    
+
     lines.append(separator)
-    
+
     return "\n".join(lines)
 
 
 def main(
-    files: Annotated[bool, typer.Option("--files", help="Show lines per file")] = False,
+    files: Annotated[
+        bool, typer.Option("--files", "-f", help="Show lines per file")
+    ] = False,
+    sort: Annotated[
+        SortColumn,
+        typer.Option("--sort", "-s", help="Sort by column"),
+    ] = SortColumn.CODE,
 ) -> None:
     """Run cloc command and print formatted table to stdout."""
     # Build cloc command
     cloc_cmd = ["cloc", "--vcs", "git", ".", "--json"]
     if files:
         cloc_cmd.append("--by-file")
-    
+
     # Run cloc command and capture output
     try:
         result = subprocess.run(
@@ -273,7 +324,7 @@ def main(
     raw_data = json.loads(json_input)
 
     # Parse into Pydantic models
-    cloc_data = ClocData.from_json_dict(raw_data, include_files=files)
+    cloc_data = ClocData.from_json_dict(raw_data, include_files=files, sort_by=sort)
 
     # Format and print the table
     if files and cloc_data.files:
