@@ -1,0 +1,44 @@
+_default:
+    @just --list
+
+# Run ruff check with autofix
+fix:
+    uv run ruff check . --fix
+
+# Run ruff check (no fix)
+check:
+    uv run ruff check .
+
+# Run ruff format
+fmt:
+    uv run ruff format .
+
+# Run pyright (type checker)
+type:
+    uv run pyright .
+
+# Run ruff check, format and type checker
+lint: fix fmt test type
+
+# Check ruff check and type checker
+check-all: check test type
+
+# Watch Python files and run `check-all` on changes
+watch:
+    watchexec --exts=py --clear --restart "just check-all"
+
+# Show all files with type errors
+typefiles:
+    uv run pyright . | grep -o '/.*\.py' | sort | uniq -c | sort -n
+
+# Start development server
+dev:
+    uv run fastapi dev src/backend/api.py
+
+# Start production server
+serve:
+    uv run fastapi run src/backend/api.py --port 8001
+
+# Run unit tests
+test:
+    echo 'No tests'
