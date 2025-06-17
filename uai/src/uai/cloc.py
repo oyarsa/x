@@ -158,11 +158,7 @@ def format_cloc_table(cloc_data: ClocData) -> str:
     name_width = max(len(entry.name) for entry in all_entries)
     name_width = max(name_width, len("Language"))
 
-    # Create separator line
-    separator = f" {'-' * (name_width + 75)}"
-
     # Header row
-    lines.append(separator)
     header_row = (
         f" {'Language':<{name_width}} "
         f"{'files':>8} "
@@ -173,6 +169,11 @@ def format_cloc_table(cloc_data: ClocData) -> str:
         f"{'comment %':>10} "
         f"{'Total':>8}"
     )
+    
+    # Create separator line based on actual header length
+    separator = " " + "-" * (len(header_row) - 1)
+    
+    lines.append(separator)
     lines.append(header_row)
     lines.append(separator)
 
@@ -207,11 +208,7 @@ def format_files_table(files: list[FileStats]) -> str:
     path_width = max(len(file.path) for file in files)
     path_width = max(path_width, len("File"))
     
-    # Create separator line
-    separator = f" {'-' * (path_width + 55)}"
-    
     # Header row
-    lines.append(separator)
     header_row = (
         f" {'File':<{path_width}} "
         f"{'blank':>8} "
@@ -221,6 +218,11 @@ def format_files_table(files: list[FileStats]) -> str:
         f"{'comment %':>10} "
         f"{'Total':>8}"
     )
+    
+    # Create separator line based on actual header length
+    separator = " " + "-" * (len(header_row) - 1)
+    
+    lines.append(separator)
     lines.append(header_row)
     lines.append(separator)
     
