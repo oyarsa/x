@@ -331,12 +331,23 @@ def main(
         SortColumn,
         typer.Option("--sort", "-s", help="Sort by column"),
     ] = SortColumn.CODE,
+    cloc_args: Annotated[
+        list[str] | None,
+        typer.Argument(help="Additional arguments to pass to cloc"),
+    ] = None,
 ) -> None:
     """Run cloc command and print formatted table to stdout."""
     # Build cloc command
-    cloc_cmd = ["cloc", "--vcs", "git", ".", "--json"]
+    cloc_cmd = ["cloc", "--vcs", "git", "--json"]
     if files:
         cloc_cmd.append("--by-file")
+    
+    # Add any additional cloc arguments
+    if cloc_args:
+        cloc_cmd.extend(cloc_args)
+    else:
+        # Default behavior if no args provided
+        cloc_cmd.append(".")
 
     # Run cloc command and capture output
     try:
