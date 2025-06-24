@@ -137,15 +137,6 @@ class ClocData(BaseModel):
                 case SortColumn.CODE:
                     languages.sort(key=lambda x: x.code, reverse=True)
 
-        sum_data = cast(dict[str, Any], data["SUM"])
-        sum_stats = LanguageStats(
-            name="SUM",
-            files=int(sum_data["nFiles"]),
-            blank=int(sum_data["blank"]),
-            comment=int(sum_data["comment"]),
-            code=int(sum_data["code"]),
-        )
-
         files: list[FileStats] | None = None
         if include_files:
             files = []
@@ -180,6 +171,37 @@ class ClocData(BaseModel):
                     case SortColumn.FILES | SortColumn.CODE:
                         # FILES column doesn't apply to individual files, fallback to code
                         files.sort(key=lambda x: x.code, reverse=True)
+
+        # Calculate sum_stats
+        if include_files and files:
+            # When using --by-file, calculate sum from files
+            sum_stats = LanguageStats(
+                name="SUM",
+                files=len(files),
+                blank=sum(f.blank for f in files),
+                comment=sum(f.comment for f in files),
+                code=sum(f.code for f in files),
+            )
+        else:
+            # When not using --by-file, get sum from JSON
+            sum_data = cast(dict[str, Any], data.get("SUM", {}))
+            if sum_data:
+                sum_stats = LanguageStats(
+                    name="SUM",
+                    files=int(sum_data["nFiles"]),
+                    blank=int(sum_data["blank"]),
+                    comment=int(sum_data["comment"]),
+                    code=int(sum_data["code"]),
+                )
+            else:
+                # Fallback if no SUM in data
+                sum_stats = LanguageStats(
+                    name="SUM",
+                    files=sum(lang.files for lang in languages),
+                    blank=sum(lang.blank for lang in languages),
+                    comment=sum(lang.comment for lang in languages),
+                    code=sum(lang.code for lang in languages),
+                )
 
         return cls(header=header, languages=languages, sum_stats=sum_stats, files=files)
 
@@ -245,13 +267,13 @@ def format_cloc_table(cloc_data: ClocData) -> str:
     return "\n".join(lines)
 
 
-def format_files_table(files: list[FileStats]) -> str:
-    """Format file statistics into a table sorted by total lines."""
+def format_files_table(files: list[FileStats], sum_stats: LanguageStats) -> str:
+    """Format file statistics into a table with SUM row."""
     lines: list[str] = []
 
     # Calculate column widths
     path_width = max(len(file.path) for file in files)
-    path_width = max(path_width, len("File"))
+    path_width = max(path_width, len("File"), len("SUM"))
 
     # Header row
     header_row = (
@@ -284,6 +306,18 @@ def format_files_table(files: list[FileStats]) -> str:
         )
         lines.append(row)
 
+    # Add SUM row
+    lines.append(separator)
+    row = (
+        f" {'SUM':<{path_width}} "
+        f"{sum_stats.blank:>8} "
+        f"{sum_stats.comment:>8} "
+        f"{sum_stats.code:>8} "
+        f"{sum_stats.code_comment:>13} "
+        f"{sum_stats.comment_percentage:>9.1f}% "
+        f"{sum_stats.total:>8}"
+    )
+    lines.append(row)
     lines.append(separator)
 
     return "\n".join(lines)
@@ -328,7 +362,7 @@ def main(
 
     # Format and print the table
     if files and cloc_data.files:
-        table = format_files_table(cloc_data.files)
+        table = format_files_table(cloc_data.files, cloc_data.sum_stats)
     else:
         table = format_cloc_table(cloc_data)
     print(table)
