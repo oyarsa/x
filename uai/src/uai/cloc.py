@@ -392,7 +392,8 @@ def main(
 
     # Add any additional cloc arguments
     if cloc_args:
-        cloc_cmd.extend(cloc_args)
+        # Remove trailing slashes from paths
+        cloc_cmd.extend(arg.rstrip("/") for arg in cloc_args)
     else:
         # Default behavior if no args provided
         cloc_cmd.append(".")
