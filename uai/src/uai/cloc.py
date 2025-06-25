@@ -9,6 +9,42 @@ from typing import Annotated, Any, cast
 import typer
 from pydantic import BaseModel
 
+# Languages typically considered non-code (config, docs, data, styling)
+NON_CODE_LANGUAGES = [
+    # Data/Config formats
+    "JSON",
+    "JSON5",
+    "YAML",
+    "TOML",
+    "INI",
+    "XML",
+    "Properties",
+    "CSV",
+    "Protocol Buffers",
+    "Thrift",
+    # Documentation
+    "Markdown",
+    "Text",
+    "AsciiDoc",
+    "reStructuredText",
+    "TeX",
+    # Web/Styling
+    "HTML",
+    "XHTML",
+    "CSS",
+    "SCSS",
+    "Sass",
+    "LESS",
+    "SVG",
+    # Build/Project files (these could be considered code by some)
+    "Maven",
+    "Ant",
+    # Data files
+    "SQL Data",
+    # Technically code, but too noisy
+    "Jupyter Notebook",
+]
+
 
 class SortColumn(StrEnum):
     """Valid column names for sorting."""
@@ -327,6 +363,14 @@ def main(
     files: Annotated[
         bool, typer.Option("--files", "-f", help="Show lines per file")
     ] = False,
+    code_only: Annotated[
+        bool,
+        typer.Option(
+            "--code-only",
+            "-C",
+            help="Exclude non-code files (config, docs, data, styling)",
+        ),
+    ] = False,
     sort: Annotated[
         SortColumn,
         typer.Option("--sort", "-s", help="Sort by column"),
@@ -341,7 +385,11 @@ def main(
     cloc_cmd = ["cloc", "--vcs", "git", "--json"]
     if files:
         cloc_cmd.append("--by-file")
-    
+
+    # Exclude non-code languages if requested
+    if code_only:
+        cloc_cmd.extend(["--exclude-lang", ",".join(NON_CODE_LANGUAGES)])
+
     # Add any additional cloc arguments
     if cloc_args:
         cloc_cmd.extend(cloc_args)
@@ -367,6 +415,11 @@ def main(
         sys.exit(1)
 
     raw_data = json.loads(json_input)
+
+    # Handle empty results (e.g., when all files are excluded)
+    if not raw_data or "header" not in raw_data:
+        print("No files found matching the criteria.")
+        return
 
     # Parse into Pydantic models
     cloc_data = ClocData.from_json_dict(raw_data, include_files=files, sort_by=sort)
