@@ -195,6 +195,10 @@ fn main() -> Result<()> {
     let start = parse_date(&args.start_date)?;
     let end = parse_date(&args.end_date)?;
 
+    if end < Utc::now().date_naive() {
+        return Ok(());
+    }
+
     let vacation_start = args.vacation_start.as_deref().map(parse_date).transpose()?;
     let vacation_end = args.vacation_end.as_deref().map(parse_date).transpose()?;
 
