@@ -145,9 +145,11 @@ class SemanticScholarAPI:
 
                 data = result.get("data", [])
                 for item in data:
-                    # openAccessPdf is {"url": "..."} or None
+                    # openAccessPdf is {"url": "..."} or None (url can be empty string)
                     pdf_info = item.get("openAccessPdf")
                     pdf_url = pdf_info.get("url") if pdf_info else None
+                    if pdf_url == "":
+                        pdf_url = None
 
                     paper = Paper(
                         paper_id=item.get("paperId", ""),
@@ -289,19 +291,19 @@ def main(
         ),
     ] = Path("output/aggregated_counts.json"),
     start_year: Annotated[
-        int | None,
+        int,
         typer.Option(
             "--start-year",
-            help="Start year for filtering (inclusive)",
+            help="Start year for filtering (inclusive). Set to 0 for no filter.",
         ),
-    ] = None,
+    ] = 2020,
     end_year: Annotated[
-        int | None,
+        int,
         typer.Option(
             "--end-year",
-            help="End year for filtering (inclusive)",
+            help="End year for filtering (inclusive). Set to 0 for no filter.",
         ),
-    ] = None,
+    ] = 2025,
     conferences: Annotated[
         list[str] | None,
         typer.Option(
@@ -367,7 +369,9 @@ def main(
 
     papers_with_pdf_count = sum(1 for p in unique_papers.values() if p.open_access_pdf)
     console.print(f"\n[green]Total unique papers found: {len(unique_papers)}[/green]")
-    console.print(f"[green]Papers with open access PDF: {papers_with_pdf_count}[/green]")
+    console.print(
+        f"[green]Papers with open access PDF: {papers_with_pdf_count}[/green]"
+    )
 
     # Save individual paper records
     output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -388,7 +392,7 @@ def main(
     papers_with_pdf = 0
 
     for paper in unique_papers.values():
-        has_pdf = paper.open_access_pdf is not None
+        has_pdf = bool(paper.open_access_pdf)
         if has_pdf:
             papers_with_pdf += 1
 
