@@ -18,157 +18,10 @@ import typer
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn
 
+from config import CONFERENCE_PATTERNS, ConferencePattern, Paper
+
 app = typer.Typer(help="Count papers from conferences using Semantic Scholar API")
 console = Console()
-
-
-@dataclass
-class Paper:
-    """Represents a paper with relevant metadata."""
-
-    paper_id: str
-    title: str
-    year: int | None
-    venue: str | None
-    citation_count: int | None
-    fields_of_study: list[str]
-    url: str
-
-
-@dataclass
-class ConferencePattern:
-    """Pattern for identifying a conference across different naming conventions."""
-
-    name: str  # Canonical name for grouping
-    venue_patterns: list[str]  # Substrings to match in venue names
-
-
-# Comprehensive list of conferences to search for
-# Each conference may have multiple name variations across years
-CONFERENCE_PATTERNS: list[ConferencePattern] = [
-    # *ACL Conferences
-    ConferencePattern(
-        name="ACL",
-        venue_patterns=[
-            "Annual Meeting of the Association for Computational Linguistics",
-            "ACL",
-        ],
-    ),
-    ConferencePattern(
-        name="EMNLP",
-        venue_patterns=[
-            "Conference on Empirical Methods in Natural Language Processing",
-            "Empirical Methods in Natural Language Processing",
-            "EMNLP",
-        ],
-    ),
-    ConferencePattern(
-        name="NAACL",
-        venue_patterns=[
-            "North American Chapter of the Association for Computational Linguistics",
-            "NAACL",
-        ],
-    ),
-    ConferencePattern(
-        name="EACL",
-        venue_patterns=[
-            "Conference of the European Chapter of the Association for Computational Linguistics",
-            "European Chapter of the Association for Computational Linguistics",
-            "EACL",
-        ],
-    ),
-    ConferencePattern(
-        name="AACL-IJCNLP",
-        venue_patterns=[
-            "AACL",
-            "International Joint Conference on Natural Language Processing",
-            "IJCNLP",
-            "AACL-IJCNLP",
-        ],
-    ),
-    ConferencePattern(
-        name="COLING",
-        venue_patterns=[
-            "International Conference on Computational Linguistics",
-            "COLING",
-        ],
-    ),
-    ConferencePattern(
-        name="CoNLL",
-        venue_patterns=[
-            "Conference on Computational Natural Language Learning",
-            "CoNLL",
-        ],
-    ),
-    ConferencePattern(
-        name="SEM",
-        venue_patterns=[
-            "Joint Conference on Lexical and Computational Semantics",
-            "SEM",
-            "StarSEM",
-        ],
-    ),
-    # Major ML/AI Conferences
-    ConferencePattern(
-        name="NeurIPS",
-        venue_patterns=[
-            "Neural Information Processing Systems",
-            "NeurIPS",
-            "NIPS",
-        ],
-    ),
-    ConferencePattern(
-        name="ICML",
-        venue_patterns=[
-            "International Conference on Machine Learning",
-            "ICML",
-        ],
-    ),
-    ConferencePattern(
-        name="ICLR",
-        venue_patterns=[
-            "International Conference on Learning Representations",
-            "ICLR",
-        ],
-    ),
-    ConferencePattern(
-        name="AAAI",
-        venue_patterns=[
-            "AAAI Conference on Artificial Intelligence",
-            "AAAI",
-        ],
-    ),
-    ConferencePattern(
-        name="IJCAI",
-        venue_patterns=[
-            "International Joint Conference on Artificial Intelligence",
-            "IJCAI",
-        ],
-    ),
-    ConferencePattern(
-        name="KDD",
-        venue_patterns=[
-            "Knowledge Discovery and Data Mining",
-            "KDD",
-            "ACM SIGKDD",
-        ],
-    ),
-    ConferencePattern(
-        name="WWW",
-        venue_patterns=[
-            "The Web Conference",
-            "WWW",
-            "World Wide Web Conference",
-        ],
-    ),
-    ConferencePattern(
-        name="SIGIR",
-        venue_patterns=[
-            "Annual International ACM SIGIR Conference on Research and Development in Information Retrieval",
-            "SIGIR",
-        ],
-    ),
-]
 
 
 class SemanticScholarAPI:
@@ -235,6 +88,7 @@ class SemanticScholarAPI:
                 "citationCount",
                 "fieldsOfStudy",
                 "url",
+                "openAccessPdf",
             ]
 
         params: dict[str, str] = {
@@ -291,6 +145,10 @@ class SemanticScholarAPI:
 
                 data = result.get("data", [])
                 for item in data:
+                    # openAccessPdf is {"url": "..."} or None
+                    pdf_info = item.get("openAccessPdf")
+                    pdf_url = pdf_info.get("url") if pdf_info else None
+
                     paper = Paper(
                         paper_id=item.get("paperId", ""),
                         title=item.get("title", ""),
@@ -299,6 +157,7 @@ class SemanticScholarAPI:
                         citation_count=item.get("citationCount"),
                         fields_of_study=item.get("fieldsOfStudy") or [],
                         url=item.get("url", ""),
+                        open_access_pdf=pdf_url,
                     )
                     papers.append(paper)
 
@@ -323,13 +182,21 @@ class SemanticScholarAPI:
         return papers
 
 
+@dataclass
+class ConferencePapers:
+    """Papers fetched for a specific conference."""
+
+    conference_name: str
+    papers: list[Paper]
+
+
 async def fetch_conference_papers(
     api: SemanticScholarAPI,
     conference: ConferencePattern,
     year_range: tuple[int, int] | None,
     progress: Progress,
     task_id: TaskID,
-) -> list[Paper]:
+) -> ConferencePapers:
     """Fetch papers for a specific conference pattern.
 
     Args:
@@ -340,7 +207,7 @@ async def fetch_conference_papers(
         task_id: Task ID for progress updates
 
     Returns:
-        List of papers matching the conference
+        ConferencePapers with conference name and matching papers
     """
     progress.update(task_id, description=f"[cyan]Fetching {conference.name}...[/cyan]")
 
@@ -363,14 +230,14 @@ async def fetch_conference_papers(
         description=f"[green]✓ {conference.name}: {len(unique_papers)} papers[/green]",
     )
 
-    return unique_papers
+    return ConferencePapers(conference_name=conference.name, papers=unique_papers)
 
 
 async def fetch_all_conferences(
     api: SemanticScholarAPI,
     conferences: list[ConferencePattern],
     year_range: tuple[int, int] | None,
-) -> list[Paper]:
+) -> list[ConferencePapers]:
     """Fetch papers for all conferences concurrently with rate limiting.
 
     Args:
@@ -379,7 +246,7 @@ async def fetch_all_conferences(
         year_range: Optional year range to filter
 
     Returns:
-        List of all papers from all conferences
+        List of ConferencePapers for each conference
     """
     async with api:
         with Progress(
@@ -387,7 +254,7 @@ async def fetch_all_conferences(
             TextColumn("[progress.description]{task.description}"),
             console=console,
         ) as progress:
-            tasks: list[asyncio.Task[list[Paper]]] = []
+            tasks: list[asyncio.Task[ConferencePapers]] = []
             for conference in conferences:
                 task_id = progress.add_task(f"[cyan]{conference.name}[/cyan]")
                 tasks.append(
@@ -400,11 +267,7 @@ async def fetch_all_conferences(
 
             results = await asyncio.gather(*tasks)
 
-    all_papers: list[Paper] = []
-    for papers in results:
-        all_papers.extend(papers)
-
-    return all_papers
+    return list(results)
 
 
 @app.command()
@@ -491,19 +354,23 @@ def main(
     console.print(f"[cyan]Searching {len(selected_conferences)} conferences...[/cyan]")
 
     # Fetch papers for all conferences
-    all_papers = asyncio.run(
+    conference_results = asyncio.run(
         fetch_all_conferences(api, selected_conferences, year_range)
     )
 
-    # Remove duplicates across conferences
+    # Collect all papers and remove duplicates
     unique_papers: dict[str, Paper] = {}
-    for paper in all_papers:
-        if paper.paper_id not in unique_papers:
-            unique_papers[paper.paper_id] = paper
+    for conf_papers in conference_results:
+        for paper in conf_papers.papers:
+            if paper.paper_id not in unique_papers:
+                unique_papers[paper.paper_id] = paper
 
+    papers_with_pdf_count = sum(1 for p in unique_papers.values() if p.open_access_pdf)
     console.print(f"\n[green]Total unique papers found: {len(unique_papers)}[/green]")
+    console.print(f"[green]Papers with open access PDF: {papers_with_pdf_count}[/green]")
 
     # Save individual paper records
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(
             [asdict(p) for p in unique_papers.values()],
@@ -517,27 +384,41 @@ def main(
     by_year: dict[int, int] = defaultdict(int)
     by_venue: dict[str, int] = defaultdict(int)
     by_year_venue: dict[tuple[int, str], int] = defaultdict(int)
+    by_year_venue_with_pdf: dict[tuple[int, str], int] = defaultdict(int)
+    papers_with_pdf = 0
 
     for paper in unique_papers.values():
+        has_pdf = paper.open_access_pdf is not None
+        if has_pdf:
+            papers_with_pdf += 1
+
         if paper.year:
             by_year[paper.year] += 1
         if paper.venue:
             by_venue[paper.venue] += 1
             if paper.year:
                 by_year_venue[(paper.year, paper.venue)] += 1
+                if has_pdf:
+                    by_year_venue_with_pdf[(paper.year, paper.venue)] += 1
 
     # Prepare aggregated output
     aggregated = {
         "total_papers": len(unique_papers),
+        "papers_with_pdf": papers_with_pdf,
         "by_year": dict(sorted(by_year.items())),
         "by_venue": dict(sorted(by_venue.items(), key=lambda x: x[1], reverse=True)),
         "by_year_venue": {
             f"{year}|{venue}": count
             for (year, venue), count in sorted(by_year_venue.items())
         },
+        "by_year_venue_with_pdf": {
+            f"{year}|{venue}": count
+            for (year, venue), count in sorted(by_year_venue_with_pdf.items())
+        },
     }
 
     # Save aggregated counts
+    aggregated_file.parent.mkdir(parents=True, exist_ok=True)
     with open(aggregated_file, "w", encoding="utf-8") as f:
         json.dump(aggregated, f, indent=2, ensure_ascii=False)
     console.print(f"[green]Saved aggregated counts to {aggregated_file}[/green]")
