@@ -73,4 +73,5 @@ convention = "google"
 
 [tool.pyright]
 reportUnusedImport = false
+reportAttributeAccessIssue = false
 typeCheckingMode = "strict"

@@ -1,6 +1,6 @@
 """Shared configuration and types for conference paper counting."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass

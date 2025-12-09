@@ -20,7 +20,14 @@ from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn
 
 from config import CONFERENCE_PATTERNS, ConferencePattern, Paper
 
-app = typer.Typer(help="Count papers from conferences using Semantic Scholar API")
+app = typer.Typer(
+    help="Count papers from conferences using Semantic Scholar API",
+    context_settings={"help_option_names": ["-h", "--help"]},
+    add_completion=False,
+    rich_markup_mode="rich",
+    pretty_exceptions_show_locals=False,
+    no_args_is_help=True,
+)
 console = Console()
 
 
