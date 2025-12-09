@@ -11,7 +11,7 @@ import sys
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Self
 
 import httpx
 import typer
@@ -43,7 +43,7 @@ class SemanticScholarAPI:
         self._lock = asyncio.Lock()
         self._last_request_time: float = 0
 
-    async def __aenter__(self) -> "SemanticScholarAPI":
+    async def __aenter__(self) -> Self:
         """Initialise the HTTP client."""
         self._client = httpx.AsyncClient(timeout=30.0, headers=self.headers)
         return self
@@ -96,6 +96,7 @@ class SemanticScholarAPI:
                 "fieldsOfStudy",
                 "url",
                 "openAccessPdf",
+                "externalIds",
             ]
 
         params: dict[str, str] = {
@@ -157,6 +158,18 @@ class SemanticScholarAPI:
                     pdf_url = pdf_info.get("url") if pdf_info else None
                     if pdf_url == "":
                         pdf_url = None
+
+                    # Fall back to ArXiv or ACL Anthology if openAccessPdf is missing
+                    if not pdf_url:
+                        external_ids: dict[str, Any] = item.get("externalIds") or {}
+                        if arxiv_id := external_ids.get("ArXiv"):
+                            pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+                        elif (doi := external_ids.get("DOI")) and doi.startswith(
+                            "10.18653/v1/"
+                        ):
+                            # ACL Anthology DOIs: 10.18653/v1/2024.acl-long.123
+                            acl_id = doi.removeprefix("10.18653/v1/")
+                            pdf_url = f"https://aclanthology.org/{acl_id}.pdf"
 
                     paper = Paper(
                         paper_id=item.get("paperId", ""),
