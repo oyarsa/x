@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import typer
 from plotly.subplots import make_subplots
 
-from config import get_venue_to_conference_map
+from config import CONFERENCE_PATTERNS, get_venue_to_conference_map
 
 app = typer.Typer(help="Plot conference paper counts by year")
 
@@ -19,6 +19,22 @@ def get_color_map(conf_names: list[str]) -> dict[str, str]:
     """Create a consistent color mapping for conference names."""
     colors = px.colors.qualitative.Plotly + px.colors.qualitative.D3
     return {name: colors[i % len(colors)] for i, name in enumerate(sorted(conf_names))}
+
+
+def get_conference_to_category_map() -> dict[str, str]:
+    """Build a mapping from conference names to their categories."""
+    return {conf.name: conf.category for conf in CONFERENCE_PATTERNS}
+
+
+def get_all_categories() -> list[str]:
+    """Get all unique categories in order."""
+    seen: set[str] = set()
+    categories: list[str] = []
+    for conf in CONFERENCE_PATTERNS:
+        if conf.category not in seen:
+            seen.add(conf.category)
+            categories.append(conf.category)
+    return categories
 
 
 def build_year_conference_data(
@@ -42,22 +58,29 @@ def add_chart_traces(
     fig: go.Figure,
     by_year_conference: dict[str, dict[str, int]],
     color_map: dict[str, str],
+    conf_to_category: dict[str, str],
     row: int,
     show_legend: bool = True,
-) -> None:
-    """Add bar chart traces to a figure for a specific subplot row."""
+) -> list[str]:
+    """Add bar chart traces to a figure for a specific subplot row.
+
+    Returns:
+        List of category names for each trace added (excluding the totals trace).
+    """
     years = sorted(by_year_conference.keys())
     conf_names = sorted(color_map.keys())
+    trace_categories: list[str] = []
 
     for conf_name in conf_names:
         counts = [by_year_conference[year].get(conf_name, 0) for year in years]
+        category = conf_to_category.get(conf_name, "Other")
         fig.add_trace(
             go.Bar(
                 name=conf_name,
                 x=years,
                 y=counts,
                 hovertemplate=(
-                    f"<b>{conf_name}</b><br>"
+                    f"<b>{conf_name}</b> ({category})<br>"
                     "Year: %{x}<br>"
                     "Papers: %{y}<extra></extra>"
                 ),
@@ -68,6 +91,7 @@ def add_chart_traces(
             row=row,
             col=1,
         )
+        trace_categories.append(category)
 
     # Calculate totals for each year
     totals = [sum(by_year_conference[year].values()) for year in years]
@@ -86,6 +110,9 @@ def add_chart_traces(
         row=row,
         col=1,
     )
+    trace_categories.append("_totals")  # Special marker for totals trace
+
+    return trace_categories
 
 
 @app.command()
@@ -123,6 +150,8 @@ def main(
         raise typer.Exit(1)
 
     venue_to_conf = get_venue_to_conference_map()
+    conf_to_category = get_conference_to_category_map()
+    all_categories = get_all_categories()
 
     by_year_conf = build_year_conference_data(by_year_venue, venue_to_conf)
     has_pdf_data = bool(by_year_venue_with_pdf)
@@ -152,8 +181,39 @@ def main(
             vertical_spacing=0.12,
         )
 
-        add_chart_traces(fig, by_year_conf, color_map, row=1, show_legend=True)
-        add_chart_traces(fig, by_year_conf_pdf, color_map, row=2, show_legend=False)
+        trace_cats_1 = add_chart_traces(
+            fig, by_year_conf, color_map, conf_to_category, row=1, show_legend=True
+        )
+        trace_cats_2 = add_chart_traces(
+            fig, by_year_conf_pdf, color_map, conf_to_category, row=2, show_legend=False
+        )
+        all_trace_categories = trace_cats_1 + trace_cats_2
+
+        # Build dropdown buttons for category filtering
+        buttons = []
+
+        # "All" button - show everything
+        buttons.append(
+            dict(
+                label="All Categories",
+                method="update",
+                args=[{"visible": [True] * len(all_trace_categories)}],
+            )
+        )
+
+        # Button for each category (hide totals since they're for all conferences)
+        for category in all_categories:
+            visibility = [
+                cat == category
+                for cat in all_trace_categories
+            ]
+            buttons.append(
+                dict(
+                    label=category,
+                    method="update",
+                    args=[{"visible": visibility}],
+                )
+            )
 
         fig.update_layout(
             barmode="stack",
@@ -161,6 +221,18 @@ def main(
             height=900,
             legend_title="Conference",
             hovermode="closest",
+            updatemenus=[
+                dict(
+                    active=0,
+                    buttons=buttons,
+                    direction="down",
+                    showactive=True,
+                    x=0.0,
+                    xanchor="left",
+                    y=1.15,
+                    yanchor="top",
+                )
+            ],
         )
 
         fig.update_xaxes(title_text="Year", row=2, col=1)
@@ -169,7 +241,27 @@ def main(
     else:
         # Single chart if no PDF data
         fig = make_subplots(rows=1, cols=1)
-        add_chart_traces(fig, by_year_conf, color_map, row=1, show_legend=True)
+        trace_cats = add_chart_traces(
+            fig, by_year_conf, color_map, conf_to_category, row=1, show_legend=True
+        )
+
+        # Build dropdown buttons for category filtering
+        buttons = [
+            dict(
+                label="All Categories",
+                method="update",
+                args=[{"visible": [True] * len(trace_cats)}],
+            )
+        ]
+        for category in all_categories:
+            visibility = [cat == category for cat in trace_cats]
+            buttons.append(
+                dict(
+                    label=category,
+                    method="update",
+                    args=[{"visible": visibility}],
+                )
+            )
 
         fig.update_layout(
             barmode="stack",
@@ -178,6 +270,18 @@ def main(
             yaxis_title="Number of Papers",
             legend_title="Conference",
             hovermode="closest",
+            updatemenus=[
+                dict(
+                    active=0,
+                    buttons=buttons,
+                    direction="down",
+                    showactive=True,
+                    x=0.0,
+                    xanchor="left",
+                    y=1.15,
+                    yanchor="top",
+                )
+            ],
         )
 
     output_file.parent.mkdir(parents=True, exist_ok=True)

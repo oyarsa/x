@@ -1,6 +1,6 @@
 """Shared configuration and types for conference paper counting."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -23,18 +23,27 @@ class ConferencePattern:
 
     name: str  # Canonical name for grouping
     venue_patterns: list[str]  # Venue names to match
+    category: str = "Other"  # Category for filtering in plots
 
+
+# Conference categories
+CATEGORY_NLP = "NLP"
+CATEGORY_ML = "ML/AI"
+CATEGORY_CV = "Computer Vision"
+CATEGORY_IR = "Information Retrieval"
+CATEGORY_DATA = "Data Mining"
 
 # Comprehensive list of conferences to search for
 # Each conference may have multiple name variations across years
 CONFERENCE_PATTERNS: list[ConferencePattern] = [
-    # *ACL Conferences
+    # *ACL / NLP Conferences
     ConferencePattern(
         name="ACL",
         venue_patterns=[
             "Annual Meeting of the Association for Computational Linguistics",
             "ACL",
         ],
+        category=CATEGORY_NLP,
     ),
     ConferencePattern(
         name="EMNLP",
@@ -43,6 +52,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "Empirical Methods in Natural Language Processing",
             "EMNLP",
         ],
+        category=CATEGORY_NLP,
     ),
     ConferencePattern(
         name="NAACL",
@@ -50,6 +60,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "North American Chapter of the Association for Computational Linguistics",
             "NAACL",
         ],
+        category=CATEGORY_NLP,
     ),
     ConferencePattern(
         name="EACL",
@@ -58,6 +69,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "European Chapter of the Association for Computational Linguistics",
             "EACL",
         ],
+        category=CATEGORY_NLP,
     ),
     ConferencePattern(
         name="AACL-IJCNLP",
@@ -67,6 +79,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "IJCNLP",
             "AACL-IJCNLP",
         ],
+        category=CATEGORY_NLP,
     ),
     ConferencePattern(
         name="COLING",
@@ -74,6 +87,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "International Conference on Computational Linguistics",
             "COLING",
         ],
+        category=CATEGORY_NLP,
     ),
     ConferencePattern(
         name="CoNLL",
@@ -81,6 +95,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "Conference on Computational Natural Language Learning",
             "CoNLL",
         ],
+        category=CATEGORY_NLP,
     ),
     ConferencePattern(
         name="SEM",
@@ -89,6 +104,31 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "SEM",
             "StarSEM",
         ],
+        category=CATEGORY_NLP,
+    ),
+    ConferencePattern(
+        name="TACL",
+        venue_patterns=[
+            "Transactions of the Association for Computational Linguistics",
+            "TACL",
+        ],
+        category=CATEGORY_NLP,
+    ),
+    ConferencePattern(
+        name="LREC",
+        venue_patterns=[
+            "Language Resources and Evaluation Conference",
+            "LREC",
+        ],
+        category=CATEGORY_NLP,
+    ),
+    ConferencePattern(
+        name="SemEval",
+        venue_patterns=[
+            "International Workshop on Semantic Evaluation",
+            "SemEval",
+        ],
+        category=CATEGORY_NLP,
     ),
     # Major ML/AI Conferences
     ConferencePattern(
@@ -98,6 +138,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "NeurIPS",
             "NIPS",
         ],
+        category=CATEGORY_ML,
     ),
     ConferencePattern(
         name="ICML",
@@ -105,6 +146,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "International Conference on Machine Learning",
             "ICML",
         ],
+        category=CATEGORY_ML,
     ),
     ConferencePattern(
         name="ICLR",
@@ -112,6 +154,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "International Conference on Learning Representations",
             "ICLR",
         ],
+        category=CATEGORY_ML,
     ),
     ConferencePattern(
         name="AAAI",
@@ -119,6 +162,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "AAAI Conference on Artificial Intelligence",
             "AAAI",
         ],
+        category=CATEGORY_ML,
     ),
     ConferencePattern(
         name="IJCAI",
@@ -126,7 +170,91 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "International Joint Conference on Artificial Intelligence",
             "IJCAI",
         ],
+        category=CATEGORY_ML,
     ),
+    ConferencePattern(
+        name="AISTATS",
+        venue_patterns=[
+            "International Conference on Artificial Intelligence and Statistics",
+            "AISTATS",
+        ],
+        category=CATEGORY_ML,
+    ),
+    ConferencePattern(
+        name="UAI",
+        venue_patterns=[
+            "Conference on Uncertainty in Artificial Intelligence",
+            "UAI",
+        ],
+        category=CATEGORY_ML,
+    ),
+    ConferencePattern(
+        name="COLT",
+        venue_patterns=[
+            "Conference on Learning Theory",
+            "COLT",
+        ],
+        category=CATEGORY_ML,
+    ),
+    # Computer Vision
+    ConferencePattern(
+        name="CVPR",
+        venue_patterns=[
+            "Computer Vision and Pattern Recognition",
+            "CVPR",
+        ],
+        category=CATEGORY_CV,
+    ),
+    ConferencePattern(
+        name="ICCV",
+        venue_patterns=[
+            "International Conference on Computer Vision",
+            "ICCV",
+        ],
+        category=CATEGORY_CV,
+    ),
+    ConferencePattern(
+        name="ECCV",
+        venue_patterns=[
+            "European Conference on Computer Vision",
+            "ECCV",
+        ],
+        category=CATEGORY_CV,
+    ),
+    # Information Retrieval
+    ConferencePattern(
+        name="SIGIR",
+        venue_patterns=[
+            "Annual International ACM SIGIR Conference on Research and Development in Information Retrieval",
+            "SIGIR",
+        ],
+        category=CATEGORY_IR,
+    ),
+    ConferencePattern(
+        name="WSDM",
+        venue_patterns=[
+            "Web Search and Data Mining",
+            "WSDM",
+        ],
+        category=CATEGORY_IR,
+    ),
+    ConferencePattern(
+        name="CIKM",
+        venue_patterns=[
+            "Conference on Information and Knowledge Management",
+            "CIKM",
+        ],
+        category=CATEGORY_IR,
+    ),
+    ConferencePattern(
+        name="RecSys",
+        venue_patterns=[
+            "ACM Conference on Recommender Systems",
+            "RecSys",
+        ],
+        category=CATEGORY_IR,
+    ),
+    # Data Mining / Web
     ConferencePattern(
         name="KDD",
         venue_patterns=[
@@ -134,6 +262,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "KDD",
             "ACM SIGKDD",
         ],
+        category=CATEGORY_DATA,
     ),
     ConferencePattern(
         name="WWW",
@@ -142,13 +271,16 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
             "WWW",
             "World Wide Web Conference",
         ],
+        category=CATEGORY_DATA,
     ),
     ConferencePattern(
-        name="SIGIR",
+        name="VLDB",
         venue_patterns=[
-            "Annual International ACM SIGIR Conference on Research and Development in Information Retrieval",
-            "SIGIR",
+            "Very Large Data Bases",
+            "VLDB",
+            "Proceedings of the VLDB Endowment",
         ],
+        category=CATEGORY_DATA,
     ),
 ]
 
