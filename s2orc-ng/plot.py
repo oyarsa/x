@@ -214,6 +214,39 @@ def get_pdf_source_label(pdf_source: str | None) -> str:
     }.get(pdf_source, pdf_source)
 
 
+def classify_pdf_host(url: str | None) -> str:
+    """Classify a PDF URL by its host."""
+    if not url:
+        return "No PDF"
+    if "arxiv.org" in url:
+        return "ArXiv"
+    if "aclanthology.org" in url:
+        return "ACL Anthology"
+    if "openaccess.thecvf.com" in url:
+        return "CVF"
+    if "openreview.net" in url:
+        return "OpenReview"
+    if "proceedings.neurips.cc" in url:
+        return "NeurIPS"
+    if "proceedings.mlr.press" in url:
+        return "PMLR"
+    return "Other"
+
+
+def build_year_host_data(papers: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Build {year: {host: count}} from papers list."""
+    by_year_host: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for paper in papers:
+        year = paper.get("year")
+        if not year:
+            continue
+        host = classify_pdf_host(paper.get("open_access_pdf"))
+        by_year_host[str(year)][host] += 1
+
+    return by_year_host
+
+
 def build_year_source_data(papers: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     """Build {year: {source: count}} from papers list."""
     by_year_source: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -265,6 +298,75 @@ def add_source_chart_traces(
 
     # Calculate totals for each year
     totals = [sum(by_year_source[year].values()) for year in years]
+
+    # Add total annotations above each bar
+    fig.add_trace(
+        go.Scatter(
+            x=years,
+            y=totals,
+            mode="text",
+            text=[str(t) for t in totals],
+            textposition="top center",
+            showlegend=False,
+            hoverinfo="skip",
+        ),
+        row=row,
+        col=1,
+    )
+
+
+def add_host_chart_traces(
+    fig: go.Figure,
+    by_year_host: dict[str, dict[str, int]],
+    row: int,
+    show_legend: bool = True,
+) -> None:
+    """Add bar chart traces for PDF hosts to a figure."""
+    years = sorted(by_year_host.keys())
+    # Fixed order and colors for hosts
+    hosts = [
+        "ArXiv",
+        "ACL Anthology",
+        "CVF",
+        "OpenReview",
+        "NeurIPS",
+        "PMLR",
+        "Other",
+        "No PDF",
+    ]
+    host_colors = {
+        "ArXiv": "#EF553B",
+        "ACL Anthology": "#00CC96",
+        "CVF": "#636EFA",
+        "OpenReview": "#FFA15A",
+        "NeurIPS": "#19D3F3",
+        "PMLR": "#FF6692",
+        "Other": "#B6E880",
+        "No PDF": "#AB63FA",
+    }
+
+    for host in hosts:
+        counts = [by_year_host[year].get(host, 0) for year in years]
+        if sum(counts) == 0:  # Skip hosts with no data
+            continue
+        fig.add_trace(
+            go.Bar(
+                name=host,
+                x=years,
+                y=counts,
+                hovertemplate=(
+                    f"<b>{host}</b><br>Year: %{{x}}<br>Papers: %{{y}}<extra></extra>"
+                ),
+                showlegend=show_legend,
+                legendgroup=host,
+                marker_color=host_colors[host],
+            ),
+            row=row,
+            col=1,
+        )
+
+    # Calculate totals for each year
+    totals = [sum(by_year_host[year].values()) for year in years]
 
     # Add total annotations above each bar
     fig.add_trace(
@@ -648,6 +750,39 @@ function updateVisibility() {{
             full_html=False, include_plotlyjs=False, div_id="source-chart"
         )
 
+        # Create PDF host chart
+        by_year_host = build_year_host_data(papers)
+        total_with_pdf_host = sum(
+            sum(count for host, count in hosts.items() if host != "No PDF")
+            for hosts in by_year_host.values()
+        )
+
+        fig_host = make_subplots(
+            rows=1,
+            cols=1,
+            subplot_titles=[
+                f"PDF Hosts ({total_with_pdf_host:,} / {total_papers:,} papers)"
+            ],
+        )
+
+        add_host_chart_traces(fig_host, by_year_host, row=1, show_legend=True)
+
+        fig_host.update_layout(
+            barmode="stack",
+            title="Papers by PDF Host",
+            xaxis_title="Year",
+            yaxis_title="Number of Papers",
+            legend_title="Host",
+            hovermode="closest",
+            height=500,
+        )
+
+        host_chart_html = fig_host.to_html(
+            full_html=False, include_plotlyjs=False, div_id="host-chart"
+        )
+    else:
+        host_chart_html = ""
+
     # Generate HTML for figures
     conf_chart_html = fig.to_html(
         full_html=False, include_plotlyjs=False, div_id="conf-chart"
@@ -688,6 +823,15 @@ function updateVisibility() {{
     {source_chart_html}
 </div>'''
         if source_chart_html
+        else ""
+    }
+
+{
+        f'''<div class="chart-container">
+    <h2>By PDF Host</h2>
+    {host_chart_html}
+</div>'''
+        if host_chart_html
         else ""
     }
 
