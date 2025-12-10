@@ -159,17 +159,23 @@ class SemanticScholarAPI:
                     if pdf_url == "":
                         pdf_url = None
 
-                    # Fall back to ArXiv or ACL Anthology if openAccessPdf is missing
-                    if not pdf_url:
+                    # Track PDF source
+                    pdf_source: str | None = None
+                    if pdf_url:
+                        pdf_source = "S2"
+                    else:
+                        # Fall back to ArXiv or ACL Anthology if openAccessPdf is missing
                         external_ids: dict[str, Any] = item.get("externalIds") or {}
                         if arxiv_id := external_ids.get("ArXiv"):
                             pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+                            pdf_source = "ArXiv"
                         elif (doi := external_ids.get("DOI")) and doi.startswith(
                             "10.18653/v1/"
                         ):
                             # ACL Anthology DOIs: 10.18653/v1/2024.acl-long.123
                             acl_id = doi.removeprefix("10.18653/v1/")
                             pdf_url = f"https://aclanthology.org/{acl_id}.pdf"
+                            pdf_source = "ACL"
 
                     paper = Paper(
                         paper_id=item.get("paperId", ""),
@@ -180,6 +186,7 @@ class SemanticScholarAPI:
                         fields_of_study=item.get("fieldsOfStudy") or [],
                         url=item.get("url", ""),
                         open_access_pdf=pdf_url,
+                        pdf_source=pdf_source,
                     )
                     papers.append(paper)
 

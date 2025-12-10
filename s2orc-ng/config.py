@@ -15,6 +15,7 @@ class Paper:
     fields_of_study: list[str]
     url: str
     open_access_pdf: str | None
+    pdf_source: str | None = None  # "S2", "ArXiv", "ACL", or None
 
 
 @dataclass

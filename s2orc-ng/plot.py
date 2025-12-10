@@ -5,7 +5,7 @@
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import plotly.express as px
 import plotly.graph_objects as go
@@ -203,6 +203,85 @@ def add_category_chart_traces(
     )
 
 
+def get_pdf_source_label(pdf_source: str | None) -> str:
+    """Convert pdf_source field to display label."""
+    if pdf_source is None:
+        return "No PDF"
+    return {
+        "S2": "Semantic Scholar",
+        "ArXiv": "ArXiv",
+        "ACL": "ACL Anthology",
+    }.get(pdf_source, pdf_source)
+
+
+def build_year_source_data(papers: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Build {year: {source: count}} from papers list."""
+    by_year_source: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for paper in papers:
+        year = paper.get("year")
+        if not year:
+            continue
+        source = get_pdf_source_label(paper.get("pdf_source"))
+        by_year_source[str(year)][source] += 1
+
+    return by_year_source
+
+
+def add_source_chart_traces(
+    fig: go.Figure,
+    by_year_source: dict[str, dict[str, int]],
+    row: int,
+    show_legend: bool = True,
+) -> None:
+    """Add bar chart traces for PDF sources to a figure."""
+    years = sorted(by_year_source.keys())
+    # Fixed order and colors for sources
+    sources = ["Semantic Scholar", "ArXiv", "ACL Anthology", "No PDF"]
+    source_colors = {
+        "Semantic Scholar": "#636EFA",
+        "ArXiv": "#EF553B",
+        "ACL Anthology": "#00CC96",
+        "No PDF": "#AB63FA",
+    }
+
+    for source in sources:
+        counts = [by_year_source[year].get(source, 0) for year in years]
+        fig.add_trace(
+            go.Bar(
+                name=source,
+                x=years,
+                y=counts,
+                hovertemplate=(
+                    f"<b>{source}</b><br>Year: %{{x}}<br>Papers: %{{y}}<extra></extra>"
+                ),
+                showlegend=show_legend,
+                legendgroup=source,
+                marker_color=source_colors[source],
+            ),
+            row=row,
+            col=1,
+        )
+
+    # Calculate totals for each year
+    totals = [sum(by_year_source[year].values()) for year in years]
+
+    # Add total annotations above each bar
+    fig.add_trace(
+        go.Scatter(
+            x=years,
+            y=totals,
+            mode="text",
+            text=[str(t) for t in totals],
+            textposition="top center",
+            showlegend=False,
+            hoverinfo="skip",
+        ),
+        row=row,
+        col=1,
+    )
+
+
 @app.command()
 def main(
     input_file: Annotated[
@@ -213,6 +292,14 @@ def main(
             help="Input JSON file with aggregated counts (from main.py)",
         ),
     ] = Path("output/aggregated_counts.json"),
+    papers_file: Annotated[
+        Path,
+        typer.Option(
+            "--papers",
+            "-p",
+            help="Input JSON file with paper records (for PDF source analysis)",
+        ),
+    ] = Path("output/papers.json"),
     output_file: Annotated[
         Path,
         typer.Option(
@@ -524,7 +611,44 @@ function updateVisibility() {{
 </script>
 """
 
-    # Generate HTML for both figures
+    # Create PDF source chart if papers file exists
+    source_chart_html = ""
+    if papers_file.exists():
+        with open(papers_file, encoding="utf-8") as f:
+            papers = json.load(f)
+
+        by_year_source = build_year_source_data(papers)
+        total_papers = sum(sum(sources.values()) for sources in by_year_source.values())
+        total_with_pdf = sum(
+            sum(count for src, count in sources.items() if src != "No PDF")
+            for sources in by_year_source.values()
+        )
+
+        fig_source = make_subplots(
+            rows=1,
+            cols=1,
+            subplot_titles=[
+                f"PDF Sources ({total_with_pdf:,} / {total_papers:,} papers)"
+            ],
+        )
+
+        add_source_chart_traces(fig_source, by_year_source, row=1, show_legend=True)
+
+        fig_source.update_layout(
+            barmode="stack",
+            title="Papers by PDF Source",
+            xaxis_title="Year",
+            yaxis_title="Number of Papers",
+            legend_title="Source",
+            hovermode="closest",
+            height=500,
+        )
+
+        source_chart_html = fig_source.to_html(
+            full_html=False, include_plotlyjs=False, div_id="source-chart"
+        )
+
+    # Generate HTML for figures
     conf_chart_html = fig.to_html(
         full_html=False, include_plotlyjs=False, div_id="conf-chart"
     )
@@ -557,6 +681,15 @@ function updateVisibility() {{
     <h2>By Category</h2>
     {cat_chart_html}
 </div>
+
+{
+        f'''<div class="chart-container">
+    <h2>By PDF Source</h2>
+    {source_chart_html}
+</div>'''
+        if source_chart_html
+        else ""
+    }
 
 {checkbox_js}
 </body>
