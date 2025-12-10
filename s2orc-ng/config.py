@@ -119,6 +119,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
         name="LREC",
         venue_patterns=[
             "Language Resources and Evaluation Conference",
+            "International Conference on Language Resources and Evaluation",
             "LREC",
         ],
         category=CATEGORY_NLP,
@@ -193,6 +194,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
         name="COLT",
         venue_patterns=[
             "Conference on Learning Theory",
+            "Annual Conference Computational Learning Theory",
             "COLT",
         ],
         category=CATEGORY_ML,
@@ -210,6 +212,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
         name="ICCV",
         venue_patterns=[
             "International Conference on Computer Vision",
+            "IEEE International Conference on Computer Vision",
             "ICCV",
         ],
         category=CATEGORY_CV,
@@ -243,6 +246,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
         name="CIKM",
         venue_patterns=[
             "Conference on Information and Knowledge Management",
+            "International Conference on Information and Knowledge Management",
             "CIKM",
         ],
         category=CATEGORY_IR,
@@ -278,6 +282,7 @@ CONFERENCE_PATTERNS: list[ConferencePattern] = [
         name="VLDB",
         venue_patterns=[
             "Very Large Data Bases",
+            "Very Large Data Bases Conference",
             "VLDB",
             "Proceedings of the VLDB Endowment",
         ],
