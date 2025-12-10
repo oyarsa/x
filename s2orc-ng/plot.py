@@ -802,6 +802,15 @@ function updateVisibility() {{
         body {{ font-family: Arial, sans-serif; margin: 20px; }}
         .chart-container {{ margin-bottom: 40px; }}
         h2 {{ color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px; }}
+        #category-controls {{
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: #f5f5f5;
+            margin: -20px -20px 20px -20px;
+            padding: 15px 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
     </style>
 </head>
 <body>
