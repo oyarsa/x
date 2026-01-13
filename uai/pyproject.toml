@@ -1,0 +1,66 @@
+[project]
+name = "uai"
+version = "0.9.0"
+authors = [
+    {name = "Italo Silva", email = "italo@maleldil.com"},
+]
+dependencies = [
+    "typer>=0.12.3",
+    "pandas>=2.2.1",
+    "tiktoken>=0.6.0",
+    "transformers>=4.40.1",
+    "requests>=2.31.0",
+    "tomli>=2.0.1",
+    "pyyaml>=6.0.1",
+    "openai>=1.30.1",
+    "beartype>=0.18.5",
+    "plotly-stubs>=0.0.5",
+    "plotly>=6.0.1",
+]
+requires-python = ">=3.12"
+readme = "README.md"
+license = {text = "GPL-3.0-or-later"}
+
+[project.scripts]
+"uai" = "uai.cli:app"
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.4.2",
+    "pyright>=1.1.361",
+    "pytest>=8.0.0",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "ISC",
+    "N",
+    "PL",
+    "RUF",
+    "SIM",
+    "TRY",
+    "UP",
+    "W",
+    "ERA"
+]
+ignore = [
+    "PLR0911",  # Too many return statements
+    "PLR0912",  # Too many branches
+    "PLR0913",  # Too many arguments
+    "PLR0915",  # Too many statements
+    "PLR2004",  # Magic value used in comparison
+    "E501",     # Line too long (let Black take care of this)
+    "TRY003",   # Long messages outside exception class
+    "SIM108",   # Use ternary operation instead of if-else block
+    "ISC001",   # Conflicts with formatter
+]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
