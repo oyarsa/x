@@ -1,3 +1,11 @@
+" Enable syntax highlighting
+syntax on
+filetype plugin indent on
+
+" Highlight jj commit messages with embedded diff
+autocmd BufRead,BufNewFile *.jjdescription set filetype=gitcommit
+autocmd FileType jj set filetype=gitcommit
+
 " Line numbers
 set number
 set relativenumber
