@@ -382,9 +382,7 @@ def cmd_up(config: Config, docker: Docker, opts: UpOptions | None = None) -> int
     docker.start_container(repo_name=repo_name, repo_url=repo_url, ports=ports)
     log_success("Container started")
 
-    # Fix ownership of mounted directories
     container_workspace = f"/workspace/{repo_name}"
-    docker.exec(["sudo", "chown", "-R", "dev:dev", "/home/dev/.claude"], check=False)
 
     # Create workspace directory inside container
     docker.exec(["mkdir", "-p", container_workspace], check=True)
