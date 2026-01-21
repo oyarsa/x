@@ -20,6 +20,8 @@ RUN apt-get update && apt-get install -y \
     fd-find \
     ripgrep \
     fzf \
+    jq \
+    zstd \
     ca-certificates \
     unzip \
     && rm -rf /var/lib/apt/lists/*
@@ -50,6 +52,9 @@ RUN --mount=type=secret,id=gh_token \
 
 # Install fleche (notification helper)
 RUN cargo install --git https://github.com/oyarsa/fleche
+
+# Install fx (JSON viewer)
+RUN go install github.com/antonmedv/fx@latest
 
 # Install Claude Code
 RUN mkdir -p ~/.npm-global && \
