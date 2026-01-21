@@ -56,9 +56,6 @@ RUN mkdir -p ~/.npm-global && \
     npm config set prefix ~/.npm-global && \
     npm install -g @anthropic-ai/claude-code
 
-# Skip Claude onboarding (required for token auth to work)
-RUN echo '{"hasCompletedOnboarding": true}' > ~/.claude.json
-
 # Copy configuration files
 COPY --chown=dev:dev config/tmux.conf /home/dev/.tmux.conf
 COPY --chown=dev:dev config/vimrc /home/dev/.vimrc

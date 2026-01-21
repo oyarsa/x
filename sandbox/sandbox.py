@@ -33,14 +33,6 @@ class Config:
     def out_dir(self) -> Path:
         return self.script_dir / "out"
 
-    @property
-    def claude_dir(self) -> Path:
-        return Path.home() / ".config" / "mysandbox" / "claude"
-
-    @property
-    def token_file(self) -> Path:
-        return Path.home() / ".config" / "mysandbox" / "token"
-
 
 @dataclass
 class SandboxConfig:
@@ -235,8 +227,6 @@ class Docker:
             self.container_name,
             "-v",
             f"{self.config.transfer_dir}:/transfer:ro",
-            "-v",
-            f"{self.config.claude_dir}:/home/dev/.claude",
             "-e",
             f"REPO_URL={repo_url}",
             "-e",
@@ -246,12 +236,6 @@ class Docker:
         # Add port mappings
         for port in ports or []:
             cmd.extend(["-p", port])
-
-        # Add Claude token if available
-        if self.config.token_file.exists():
-            token = self.config.token_file.read_text().strip()
-            if token:
-                cmd.extend(["-e", f"CLAUDE_CODE_OAUTH_TOKEN={token}"])
 
         cmd.extend(["-it", self.config.image_name, "sleep", "infinity"])
         run(cmd)
@@ -372,7 +356,6 @@ def cmd_up(config: Config, docker: Docker, opts: UpOptions | None = None) -> int
     # Create directories
     config.transfer_dir.mkdir(exist_ok=True)
     config.out_dir.mkdir(exist_ok=True)
-    config.claude_dir.mkdir(parents=True, exist_ok=True)
 
     if docker.container_exists():
         log_warn("Removing existing container...")
@@ -643,22 +626,6 @@ def cmd_destroy(config: Config, docker: Docker, yes: bool = False) -> int:
     return 0
 
 
-def cmd_auth(config: Config) -> int:
-    log_info("Running 'claude setup-token'...")
-    run(["claude", "setup-token"], check=False)
-
-    print()
-    token = input("Paste the token here: ").strip()
-    if not token:
-        log_error("No token provided")
-        return 1
-
-    config.token_file.parent.mkdir(parents=True, exist_ok=True)
-    config.token_file.write_text(token)
-    log_success(f"Token saved to {config.token_file}")
-    return 0
-
-
 def cmd_init() -> int:
     config_file = Path.cwd() / ".mysandbox.toml"
     if config_file.exists():
@@ -713,7 +680,6 @@ Commands:
   list            List all sandboxes
   rebuild         Force rebuild the image
   destroy         Remove container and workspace
-  auth            Authenticate Claude and save token
 
 Run from a git repository directory. The sandbox will clone that repo.
 Workspace lives inside container - use cp-out to save work.
@@ -781,7 +747,7 @@ Workspace lives inside container - use cp-out to save work.
     if not name and args.command not in (
         "list",
         "rebuild",
-        "auth",
+        "init",
         "help",
         "-h",
         "--help",
@@ -836,8 +802,6 @@ Workspace lives inside container - use cp-out to save work.
             return cmd_rebuild(config, docker)
         case "destroy":
             return cmd_destroy(config, docker, args.yes)
-        case "auth":
-            return cmd_auth(config)
         case "init":
             return cmd_init()
         case "help" | "-h" | "--help":
