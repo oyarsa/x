@@ -1,0 +1,72 @@
+" Line numbers
+set number
+set relativenumber
+
+" UI elements
+set ruler
+set showcmd
+set showmatch
+set hidden
+
+" Indentation
+set autoindent
+set smartindent
+set expandtab
+set shiftwidth=4
+set tabstop=4
+set softtabstop=4
+
+" Search improvements
+set incsearch
+set ignorecase
+set smartcase
+
+" UI and UX improvements
+set wildmenu
+set scrolloff=8
+set sidescrolloff=5
+set nowrap
+set signcolumn=yes
+set shortmess+=c
+
+" Disable swap and backup
+set noswapfile
+set nobackup
+set nowritebackup
+
+" Performance
+set timeout
+set timeoutlen=300
+
+" Quality of life
+set mouse=a
+set noerrorbells
+set visualbell t_vb=
+
+" Key mappings (these are all personal preference)
+inoremap jk <Esc>
+let mapleader = " "
+
+" Navigation mappings
+nnoremap J 6j
+xnoremap J 6j
+onoremap J 6j
+
+nnoremap K 6k
+xnoremap K 6k
+onoremap K 6k
+
+nnoremap H ^
+xnoremap H ^
+onoremap H ^
+
+nnoremap L $
+xnoremap L $
+onoremap L $
+
+nnoremap M J
+xnoremap M J
+onoremap M J
+
+set background=dark
+colorscheme slate

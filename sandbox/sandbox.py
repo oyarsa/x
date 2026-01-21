@@ -1,0 +1,791 @@
+#!/usr/bin/env python3
+"""Docker-based sandbox for running Claude Code in dangerous mode."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+@dataclass
+class Config:
+    image_name: str = "claude-sandbox"
+    container_prefix: str = "claude-sandbox"
+
+    def container_name(self, name: str) -> str:
+        return f"{self.container_prefix}-{name}"
+
+    @property
+    def script_dir(self) -> Path:
+        return Path(__file__).parent.resolve()
+
+    @property
+    def transfer_dir(self) -> Path:
+        return self.script_dir / "transfer"
+
+    @property
+    def out_dir(self) -> Path:
+        return self.script_dir / "out"
+
+    @property
+    def claude_dir(self) -> Path:
+        return Path.home() / ".config" / "mysandbox" / "claude"
+
+    @property
+    def token_file(self) -> Path:
+        return Path.home() / ".config" / "mysandbox" / "token"
+
+
+@dataclass
+class SandboxConfig:
+    """Per-project sandbox configuration from .mysandbox.toml"""
+
+    branch: str = "master"
+    setup: str | None = None
+    check: str | None = None
+    files: list[str] = field(default_factory=list)
+
+    @classmethod
+    def load(cls, path: Path | None = None) -> SandboxConfig:
+        """Load config from .mysandbox.toml in the current directory or git root."""
+        if path is None:
+            path = Path.cwd() / ".mysandbox.toml"
+        if not path.exists():
+            return cls()
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+        return cls(
+            branch=data.get("branch", "master"),
+            setup=data.get("setup"),
+            check=data.get("check"),
+            files=data.get("files", []),
+        )
+
+
+# -- Logging ------------------------------------------------------------------
+
+
+class Colors:
+    RED = "\033[0;31m"
+    GREEN = "\033[0;32m"
+    YELLOW = "\033[1;33m"
+    BLUE = "\033[0;34m"
+    NC = "\033[0m"
+
+
+def log_info(msg: str) -> None:
+    print(f"{Colors.BLUE}ℹ{Colors.NC} {msg}")
+
+
+def log_success(msg: str) -> None:
+    print(f"{Colors.GREEN}✓{Colors.NC} {msg}")
+
+
+def log_warn(msg: str) -> None:
+    print(f"{Colors.YELLOW}⚠{Colors.NC} {msg}")
+
+
+def log_error(msg: str) -> None:
+    print(f"{Colors.RED}✗{Colors.NC} {msg}", file=sys.stderr)
+
+
+# -- Subprocess helpers -------------------------------------------------------
+
+
+def run(
+    cmd: list[str],
+    *,
+    capture: bool = False,
+    check: bool = True,
+    **kwargs,
+) -> subprocess.CompletedProcess:
+    if capture:
+        kwargs.setdefault("stdout", subprocess.PIPE)
+        kwargs.setdefault("stderr", subprocess.PIPE)
+        kwargs.setdefault("text", True)
+    return subprocess.run(cmd, check=check, **kwargs)
+
+
+def run_quiet(cmd: list[str]) -> bool:
+    result = subprocess.run(
+        cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+    )
+    return result.returncode == 0
+
+
+# -- Docker operations --------------------------------------------------------
+
+
+class Docker:
+    def __init__(self, config: Config, name: str | None = None) -> None:
+        self.config = config
+        self.name = name
+
+    @property
+    def container_name(self) -> str:
+        if not self.name:
+            raise ValueError("Workspace name not set")
+        return self.config.container_name(self.name)
+
+    def image_exists(self) -> bool:
+        return run_quiet(["docker", "image", "inspect", self.config.image_name])
+
+    def container_exists(self) -> bool:
+        return run_quiet(["docker", "container", "inspect", self.container_name])
+
+    def container_running(self) -> bool:
+        if not self.container_exists():
+            return False
+        result = run(
+            [
+                "docker",
+                "container",
+                "inspect",
+                "-f",
+                "{{.State.Running}}",
+                self.container_name,
+            ],
+            capture=True,
+            check=False,
+        )
+        return result.returncode == 0 and result.stdout.strip() == "true"
+
+    def build(self, *, force: bool = False) -> None:
+        if force or not self.image_exists():
+            log_info("Building Docker image...")
+            cmd = ["docker", "build", "-t", self.config.image_name]
+            # Pass GitHub token via secret to avoid rate limits during mise install
+            github_token = os.environ.get("GITHUB_TOKEN")
+            if not github_token:
+                # Try getting token from gh CLI
+                result = run(["gh", "auth", "token"], capture=True, check=False)
+                if result.returncode == 0:
+                    github_token = result.stdout.strip()
+            token_file = self.config.script_dir / ".gh_token"
+            try:
+                if github_token:
+                    token_file.write_text(github_token)
+                    cmd.extend(["--secret", f"id=gh_token,src={token_file}"])
+                cmd.append(str(self.config.script_dir))
+                run(cmd)
+            finally:
+                token_file.unlink(missing_ok=True)
+            log_success("Image built successfully")
+        else:
+            log_info("Image already exists (use 'rebuild' to force)")
+
+    def rm_container(self) -> None:
+        if self.container_exists():
+            run(
+                ["docker", "rm", "-f", self.container_name],
+                capture=True,
+                check=False,
+            )
+
+    def stop(self, *, kill: bool = False, timeout: int | None = None) -> None:
+        if kill:
+            run(["docker", "kill", self.container_name], capture=True, check=False)
+        elif timeout is not None:
+            run(
+                ["docker", "stop", "-t", str(timeout), self.container_name],
+                capture=True,
+                check=False,
+            )
+        else:
+            run(["docker", "stop", self.container_name], capture=True, check=False)
+
+    def start(self) -> None:
+        run(["docker", "start", self.container_name], capture=True, check=False)
+
+    def list_containers(self) -> list[str]:
+        """List all sandbox containers."""
+        result = run(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                f"name={self.config.container_prefix}-",
+                "--format",
+                "{{.Names}}",
+            ],
+            capture=True,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        return result.stdout.strip().split("\n")
+
+    def start_container(self, *, repo_name: str, repo_url: str) -> None:
+        cmd = [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            self.container_name,
+            "-v",
+            f"{self.config.transfer_dir}:/transfer:ro",
+            "-v",
+            f"{self.config.claude_dir}:/home/dev/.claude",
+            "-e",
+            f"REPO_URL={repo_url}",
+            "-e",
+            f"REPO_NAME={repo_name}",
+        ]
+
+        # Add Claude token if available
+        if self.config.token_file.exists():
+            token = self.config.token_file.read_text().strip()
+            if token:
+                cmd.extend(["-e", f"CLAUDE_CODE_OAUTH_TOKEN={token}"])
+
+        cmd.extend(["-it", self.config.image_name, "sleep", "infinity"])
+        run(cmd)
+
+    def exec(
+        self,
+        cmd: list[str],
+        *,
+        workdir: str | None = None,
+        interactive: bool = False,
+        capture: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess:
+        docker_cmd = ["docker", "exec"]
+        if interactive:
+            docker_cmd.append("-it")
+        if workdir:
+            docker_cmd.extend(["-w", workdir])
+        if env:
+            for key, value in env.items():
+                docker_cmd.extend(["-e", f"{key}={value}"])
+        docker_cmd.append(self.container_name)
+        docker_cmd.extend(cmd)
+        return run(docker_cmd, capture=capture, check=check)
+
+    def get_env(self, var: str) -> str | None:
+        result = self.exec(["printenv", var], capture=True)
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    def path_exists(self, path: str) -> bool:
+        return self.exec(["test", "-d", path]).returncode == 0
+
+    def get_workdir(self) -> str:
+        repo_name = self.get_env("REPO_NAME")
+        if repo_name:
+            workspace = f"/workspace/{repo_name}"
+            if self.path_exists(workspace):
+                return workspace
+        return "/root"
+
+    def copy_from(self, src: str, dst: Path) -> None:
+        run(["docker", "cp", f"{self.container_name}:{src}", str(dst)])
+
+
+# -- Git operations -----------------------------------------------------------
+
+
+class Git:
+    @staticmethod
+    def is_repo() -> bool:
+        return run_quiet(["git", "rev-parse", "--is-inside-work-tree"])
+
+    @staticmethod
+    def get_remote_url() -> str | None:
+        result = run(["git", "remote", "get-url", "origin"], capture=True, check=False)
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    @staticmethod
+    def normalize_url(url: str) -> str:
+        # Convert SSH to HTTPS
+        if url.startswith("git@github.com:"):
+            url = "https://github.com/" + url.removeprefix("git@github.com:")
+        # Ensure .git suffix
+        if not url.endswith(".git"):
+            url += ".git"
+        return url
+
+    @staticmethod
+    def repo_name_from_url(url: str) -> str:
+        return Path(url).stem  # removes .git
+
+
+# -- Commands -----------------------------------------------------------------
+
+
+def cmd_up(config: Config, docker: Docker) -> int:
+    if not Git.is_repo():
+        log_error("Not in a git repository")
+        return 1
+
+    remote_url = Git.get_remote_url()
+    if not remote_url:
+        log_error("No 'origin' remote found")
+        return 1
+
+    # Load per-project config
+    sandbox_config = SandboxConfig.load()
+
+    repo_url = Git.normalize_url(remote_url)
+    repo_name = Git.repo_name_from_url(repo_url)
+
+    log_info(f"Repository: {repo_url}")
+    log_info(f"Branch: {sandbox_config.branch}")
+    log_info(f"Name: {repo_name}")
+
+    docker.build()
+
+    # Create directories
+    config.transfer_dir.mkdir(exist_ok=True)
+    config.out_dir.mkdir(exist_ok=True)
+    config.claude_dir.mkdir(parents=True, exist_ok=True)
+
+    if docker.container_exists():
+        log_warn("Removing existing container...")
+        docker.rm_container()
+
+    log_info("Starting container...")
+    docker.start_container(repo_name=repo_name, repo_url=repo_url)
+    log_success("Container started")
+
+    # Fix ownership of mounted directories
+    container_workspace = f"/workspace/{repo_name}"
+    docker.exec(["sudo", "chown", "-R", "dev:dev", "/home/dev/.claude"], check=False)
+
+    # Create workspace directory inside container
+    docker.exec(["mkdir", "-p", container_workspace], check=True)
+
+    # Clone if workspace is empty
+    result = docker.exec(["ls", "-A", container_workspace], capture=True)
+    workspace_empty = result.returncode == 0 and not result.stdout.strip()
+
+    if workspace_empty:
+        log_info("Cloning repository...")
+        clone_url = repo_url.replace("https://", "https://oyarsa@")
+        docker.exec(
+            ["git", "clone", "-b", sandbox_config.branch, clone_url, "."],
+            workdir=container_workspace,
+            check=True,
+        )
+        # Set up jj colocated with git
+        docker.exec(
+            ["jj", "git", "init", "--colocate", "."],
+            workdir=container_workspace,
+            check=True,
+        )
+        log_success(f"Repository cloned to {container_workspace}")
+    else:
+        log_info("Workspace already has content, skipping clone")
+
+    # Copy files into workspace
+    for file_path in sandbox_config.files:
+        src = Path(file_path).expanduser()
+        if not src.exists():
+            log_warn(f"File not found, skipping: {src}")
+            continue
+        dst = f"{container_workspace}/{src.name}"
+        run(["docker", "cp", str(src), f"{docker.container_name}:{dst}"])
+        docker.exec(["chown", "-R", "dev:dev", dst])
+        log_info(f"Copied {src} to {dst}")
+
+    # Run optional setup commands from config
+    if sandbox_config.setup:
+        log_info(f"Running setup: {sandbox_config.setup}")
+        docker.exec(["sh", "-c", sandbox_config.setup], workdir=container_workspace)
+
+    if sandbox_config.check:
+        log_info(f"Running check: {sandbox_config.check}")
+        docker.exec(["sh", "-c", sandbox_config.check], workdir=container_workspace)
+
+    log_success("Setup complete!")
+    print()
+    log_info("Sandbox is ready. Commands:")
+    print("  sandbox shell      - Enter the sandbox")
+    print("  sandbox cp-in X    - Copy X to transfer/ (at /transfer in container)")
+    print("  sandbox cp-out X   - Copy X from container to ./out/")
+    print("  sandbox down       - Stop the sandbox")
+    print()
+    log_info("Inside the sandbox, run 'yolo' to start Claude")
+    log_warn("Workspace lives inside container - use cp-out to save work")
+    return 0
+
+
+def cmd_shell(config: Config, docker: Docker, workdir: str | None = None) -> int:
+    if not docker.container_running():
+        if docker.container_exists():
+            # Container stopped - start it
+            log_info("Container stopped, starting it...")
+            docker.start()
+        else:
+            # Container doesn't exist - create it
+            log_info("Container not found, creating it...")
+            result = cmd_up(config, docker)
+            if result != 0:
+                return result
+
+    workdir = workdir or docker.get_workdir()
+    term_env = {"TERM": os.environ.get("TERM", "xterm-256color")}
+    docker.exec(["fish"], workdir=workdir, interactive=True, env=term_env)
+    return 0
+
+
+def cmd_exec(
+    config: Config, docker: Docker, cmd: list[str], workdir: str | None = None
+) -> int:
+    if not docker.container_running():
+        log_error("Container is not running. Run 'sandbox up' first.")
+        return 1
+
+    workdir = workdir or docker.get_workdir()
+    term_env = {"TERM": os.environ.get("TERM", "xterm-256color")}
+    result = docker.exec(cmd, workdir=workdir, interactive=True, env=term_env)
+    return result.returncode
+
+
+def cmd_cp_in(config: Config, docker: Docker, path: str) -> int:
+    src = Path(path)
+    if not src.exists():
+        log_error(f"Source does not exist: {src}")
+        return 1
+
+    config.transfer_dir.mkdir(exist_ok=True)
+    dst = config.transfer_dir / src.name
+
+    if src.is_dir():
+        if dst.exists():
+            shutil.rmtree(dst)
+        shutil.copytree(src, dst)
+    else:
+        shutil.copy2(src, dst)
+
+    log_success(f"Copied '{src}' to transfer/")
+    log_info(f"Available in container at: /transfer/{src.name}")
+    return 0
+
+
+def cmd_cp_out(config: Config, docker: Docker, path: str) -> int:
+    if not docker.container_running():
+        log_error("Container is not running. Run 'sandbox up' first.")
+        return 1
+
+    config.out_dir.mkdir(exist_ok=True)
+
+    # Resolve relative paths against workspace
+    if not path.startswith("/"):
+        repo_name = docker.get_env("REPO_NAME")
+        if repo_name:
+            path = f"/workspace/{repo_name}/{path}"
+
+    try:
+        docker.copy_from(path, config.out_dir)
+        log_success(f"Copied '{path}' to out/")
+        return 0
+    except subprocess.CalledProcessError:
+        log_error(f"Failed to copy '{path}'")
+        return 1
+
+
+def cmd_down(config: Config, docker: Docker) -> int:
+    if docker.container_exists():
+        log_info("Stopping container...")
+        docker.rm_container()
+        log_success("Container removed (workspace preserved)")
+    else:
+        log_info("Container doesn't exist")
+    return 0
+
+
+def cmd_stop(
+    config: Config, docker: Docker, *, kill: bool = False, timeout: int | None = None
+) -> int:
+    if docker.container_running():
+        if kill:
+            log_info("Killing container...")
+        else:
+            log_info("Stopping container...")
+        docker.stop(kill=kill, timeout=timeout)
+        log_success("Container stopped (can resume with 'sandbox start')")
+    elif docker.container_exists():
+        log_info("Container already stopped")
+    else:
+        log_error("Container doesn't exist. Run 'sandbox up' first.")
+        return 1
+    return 0
+
+
+def cmd_start(config: Config, docker: Docker) -> int:
+    if docker.container_running():
+        log_info("Container already running")
+    elif docker.container_exists():
+        log_info("Starting container...")
+        docker.start()
+        log_success("Container started")
+    else:
+        log_error("Container doesn't exist. Run 'sandbox up' first.")
+        return 1
+    return 0
+
+
+def cmd_status(config: Config, docker: Docker) -> int:
+    print(f"Image: {config.image_name}")
+    if docker.image_exists():
+        print(f"  Status: {Colors.GREEN}exists{Colors.NC}")
+    else:
+        print(f"  Status: {Colors.YELLOW}not built{Colors.NC}")
+
+    print()
+    print(f"Container: {docker.container_name}")
+    if docker.container_running():
+        print(f"  Status: {Colors.GREEN}running{Colors.NC}")
+        repo_name = docker.get_env("REPO_NAME") or "unknown"
+        print(f"  Repository: {repo_name}")
+        print(f"  Workspace: /workspace/{repo_name}")
+    elif docker.container_exists():
+        print(f"  Status: {Colors.YELLOW}stopped{Colors.NC}")
+    else:
+        print(f"  Status: {Colors.RED}not created{Colors.NC}")
+
+    return 0
+
+
+def cmd_logs(config: Config, docker: Docker) -> int:
+    if not docker.container_exists():
+        log_error("Container doesn't exist")
+        return 1
+    run(["docker", "logs", docker.container_name])
+    return 0
+
+
+def cmd_rebuild(config: Config, docker: Docker) -> int:
+    docker.build(force=True)
+    return 0
+
+
+def cmd_list(config: Config, docker: Docker) -> int:
+    containers = docker.list_containers()
+    if not containers:
+        log_info("No sandbox containers found")
+        return 0
+
+    print("Sandbox containers:")
+    for name in containers:
+        # Check if container is running
+        result = run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", name],
+            capture=True,
+            check=False,
+        )
+        is_running = result.returncode == 0 and result.stdout.strip() == "true"
+        status = (
+            f"{Colors.GREEN}running{Colors.NC}"
+            if is_running
+            else f"{Colors.YELLOW}stopped{Colors.NC}"
+        )
+
+        # Extract workspace name from container name
+        workspace = name.removeprefix(f"{config.container_prefix}-")
+        print(f"  {workspace}: {status}")
+
+    return 0
+
+
+def cmd_destroy(config: Config, docker: Docker, yes: bool = False) -> int:
+    if not docker.container_exists():
+        log_info("No container to destroy")
+        return 0
+
+    if not yes:
+        response = input(
+            "This will delete the container and all workspace data. Continue? [y/N] "
+        )
+        if response.lower() != "y":
+            return 1
+
+    if docker.container_running():
+        log_info("Stopping container...")
+        docker.rm_container()
+    else:
+        docker.rm_container()
+
+    log_success("Container removed")
+    return 0
+
+
+def cmd_auth(config: Config) -> int:
+    log_info("Running 'claude setup-token'...")
+    run(["claude", "setup-token"], check=False)
+
+    print()
+    token = input("Paste the token here: ").strip()
+    if not token:
+        log_error("No token provided")
+        return 1
+
+    config.token_file.parent.mkdir(parents=True, exist_ok=True)
+    config.token_file.write_text(token)
+    log_success(f"Token saved to {config.token_file}")
+    return 0
+
+
+def cmd_init() -> int:
+    config_file = Path.cwd() / ".mysandbox.toml"
+    if config_file.exists():
+        log_error(f"{config_file} already exists")
+        return 1
+
+    config_file.write_text("""\
+branch = "master"
+# setup = "uv sync"
+# check = "uv run pytest"
+# files = [
+#     "~/.env.local",
+# ]
+""")
+    log_success(f"Created {config_file}")
+    return 0
+
+
+# -- Main ---------------------------------------------------------------------
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Docker-based sandbox for Claude Code",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Options:
+  -n, --name      Workspace name (defaults to repo name)
+  -w, --workdir   Set working directory for shell/exec commands
+  --kill          Force kill (SIGKILL) for stop command
+  -t, --timeout   Seconds to wait before killing (for stop)
+
+Commands:
+  init            Create .mysandbox.toml config file
+  up [name]       Start sandbox, clone repo, run setup
+  shell (s)       Enter the sandbox shell
+  exec <cmd>      Run a command in the sandbox
+  cp-in <path>    Copy file/directory to transfer/
+  cp-out <path>   Copy file/directory from container to ./out/
+  stop            Stop container (preserves state)
+  start           Start stopped container
+  down            Remove container (workspace preserved)
+  status          Show sandbox status
+  logs            Show container logs
+  list            List all sandboxes
+  rebuild         Force rebuild the image
+  destroy         Remove container and workspace
+  auth            Authenticate Claude and save token
+
+Run from a git repository directory. The sandbox will clone that repo.
+Workspace lives inside container - use cp-out to save work.
+""",
+    )
+    parser.add_argument("command", help="Command to run")
+    parser.add_argument("args", nargs="*", help="Command arguments")
+    parser.add_argument("-n", "--name", help="Workspace name (defaults to repo name)")
+    parser.add_argument(
+        "-w", "--workdir", help="Working directory inside the container"
+    )
+    parser.add_argument(
+        "-y", "--yes", action="store_true", help="Skip confirmation prompts"
+    )
+    parser.add_argument(
+        "--kill",
+        action="store_true",
+        help="Force kill (SIGKILL) instead of graceful stop",
+    )
+    parser.add_argument(
+        "-t",
+        "--timeout",
+        type=int,
+        help="Seconds to wait before killing (for stop command)",
+    )
+
+    args = parser.parse_args()
+
+    config = Config()
+
+    # Determine workspace name
+    name = args.name
+    if (
+        not name
+        and args.args
+        and args.command
+        in ("up", "shell", "s", "down", "stop", "status", "logs", "destroy")
+    ):
+        name = args.args[0]
+        args.args = args.args[1:]
+    if not name and args.command not in (
+        "list",
+        "rebuild",
+        "auth",
+        "help",
+        "-h",
+        "--help",
+    ):
+        # Try to get from git repo
+        if Git.is_repo():
+            remote_url = Git.get_remote_url()
+            if remote_url:
+                name = Git.repo_name_from_url(Git.normalize_url(remote_url))
+
+    docker = Docker(config, name)
+
+    match args.command:
+        case "up":
+            return cmd_up(config, docker)
+        case "shell" | "s":
+            return cmd_shell(config, docker, args.workdir)
+        case "exec":
+            if not args.args:
+                log_error("exec requires a command")
+                return 1
+            return cmd_exec(config, docker, args.args, args.workdir)
+        case "cp-in" | "in":
+            if not args.args:
+                log_error("cp-in requires a path")
+                return 1
+            return cmd_cp_in(config, docker, args.args[0])
+        case "cp-out" | "out":
+            if not args.args:
+                log_error("cp-out requires a path")
+                return 1
+            return cmd_cp_out(config, docker, args.args[0])
+        case "down":
+            return cmd_down(config, docker)
+        case "stop":
+            return cmd_stop(config, docker, kill=args.kill, timeout=args.timeout)
+        case "start":
+            return cmd_start(config, docker)
+        case "status":
+            return cmd_status(config, docker)
+        case "logs":
+            return cmd_logs(config, docker)
+        case "list" | "ls":
+            return cmd_list(config, docker)
+        case "rebuild":
+            return cmd_rebuild(config, docker)
+        case "destroy":
+            return cmd_destroy(config, docker, args.yes)
+        case "auth":
+            return cmd_auth(config)
+        case "init":
+            return cmd_init()
+        case "help" | "-h" | "--help":
+            parser.print_help()
+            return 0
+        case _:
+            log_error(f"Unknown command: {args.command}")
+            parser.print_help()
+            return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
