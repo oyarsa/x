@@ -48,6 +48,9 @@ RUN --mount=type=secret,id=gh_token \
     export GITHUB_TOKEN="$(cat /run/secrets/gh_token 2>/dev/null)" && \
     for i in 1 2 3; do mise install && break || sleep 5; done
 
+# Install fleche (notification helper)
+RUN cargo install --git https://github.com/oyarsa/fleche
+
 # Install Claude Code
 RUN mkdir -p ~/.npm-global && \
     npm config set prefix ~/.npm-global && \
