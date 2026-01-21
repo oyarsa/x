@@ -50,6 +50,7 @@ class SandboxConfig:
     setup: str | None = None
     check: str | None = None
     files: list[str] = field(default_factory=list)
+    ports: list[str] = field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path | None = None) -> SandboxConfig:
@@ -65,6 +66,7 @@ class SandboxConfig:
             setup=data.get("setup"),
             check=data.get("check"),
             files=data.get("files", []),
+            ports=data.get("ports", []),
         )
 
 
@@ -222,7 +224,9 @@ class Docker:
             return []
         return result.stdout.strip().split("\n")
 
-    def start_container(self, *, repo_name: str, repo_url: str) -> None:
+    def start_container(
+        self, *, repo_name: str, repo_url: str, ports: list[str] | None = None
+    ) -> None:
         cmd = [
             "docker",
             "run",
@@ -238,6 +242,10 @@ class Docker:
             "-e",
             f"REPO_NAME={repo_name}",
         ]
+
+        # Add port mappings
+        for port in ports or []:
+            cmd.extend(["-p", port])
 
         # Add Claude token if available
         if self.config.token_file.exists():
@@ -320,7 +328,17 @@ class Git:
 # -- Commands -----------------------------------------------------------------
 
 
-def cmd_up(config: Config, docker: Docker) -> int:
+@dataclass
+class UpOptions:
+    """CLI options for the up command."""
+
+    setup: str | None = None
+    check: str | None = None
+    files: list[str] = field(default_factory=list)
+    ports: list[str] = field(default_factory=list)
+
+
+def cmd_up(config: Config, docker: Docker, opts: UpOptions | None = None) -> int:
     if not Git.is_repo():
         log_error("Not in a git repository")
         return 1
@@ -330,8 +348,15 @@ def cmd_up(config: Config, docker: Docker) -> int:
         log_error("No 'origin' remote found")
         return 1
 
-    # Load per-project config
+    # Load per-project config and merge with CLI options
     sandbox_config = SandboxConfig.load()
+    opts = opts or UpOptions()
+
+    # CLI options override config file
+    setup = opts.setup if opts.setup is not None else sandbox_config.setup
+    check = opts.check if opts.check is not None else sandbox_config.check
+    files = opts.files if opts.files else sandbox_config.files
+    ports = opts.ports if opts.ports else sandbox_config.ports
 
     repo_url = Git.normalize_url(remote_url)
     repo_name = Git.repo_name_from_url(repo_url)
@@ -339,6 +364,8 @@ def cmd_up(config: Config, docker: Docker) -> int:
     log_info(f"Repository: {repo_url}")
     log_info(f"Branch: {sandbox_config.branch}")
     log_info(f"Name: {repo_name}")
+    if ports:
+        log_info(f"Ports: {', '.join(ports)}")
 
     docker.build()
 
@@ -352,7 +379,7 @@ def cmd_up(config: Config, docker: Docker) -> int:
         docker.rm_container()
 
     log_info("Starting container...")
-    docker.start_container(repo_name=repo_name, repo_url=repo_url)
+    docker.start_container(repo_name=repo_name, repo_url=repo_url, ports=ports)
     log_success("Container started")
 
     # Fix ownership of mounted directories
@@ -385,7 +412,7 @@ def cmd_up(config: Config, docker: Docker) -> int:
         log_info("Workspace already has content, skipping clone")
 
     # Copy files into workspace
-    for file_path in sandbox_config.files:
+    for file_path in files:
         src = Path(file_path).expanduser()
         if not src.exists():
             log_warn(f"File not found, skipping: {src}")
@@ -396,13 +423,13 @@ def cmd_up(config: Config, docker: Docker) -> int:
         log_info(f"Copied {src} to {dst}")
 
     # Run optional setup commands from config
-    if sandbox_config.setup:
-        log_info(f"Running setup: {sandbox_config.setup}")
-        docker.exec(["sh", "-c", sandbox_config.setup], workdir=container_workspace)
+    if setup:
+        log_info(f"Running setup: {setup}")
+        docker.exec(["sh", "-c", setup], workdir=container_workspace)
 
-    if sandbox_config.check:
-        log_info(f"Running check: {sandbox_config.check}")
-        docker.exec(["sh", "-c", sandbox_config.check], workdir=container_workspace)
+    if check:
+        log_info(f"Running check: {check}")
+        docker.exec(["sh", "-c", check], workdir=container_workspace)
 
     log_success("Setup complete!")
     print()
@@ -647,6 +674,9 @@ branch = "master"
 # files = [
 #     "~/.env.local",
 # ]
+# ports = [
+#     "8000:8000",
+# ]
 """)
     log_success(f"Created {config_file}")
     return 0
@@ -665,6 +695,10 @@ Options:
   -w, --workdir   Set working directory for shell/exec commands
   --kill          Force kill (SIGKILL) for stop command
   -t, --timeout   Seconds to wait before killing (for stop)
+  -p, --port      Port mapping host:container (repeatable, for up)
+  --setup         Setup command after cloning (for up)
+  --check         Check command after setup (for up)
+  -f, --file      File to copy into workspace (repeatable, for up)
 
 Commands:
   init            Create .mysandbox.toml config file
@@ -707,6 +741,30 @@ Workspace lives inside container - use cp-out to save work.
         type=int,
         help="Seconds to wait before killing (for stop command)",
     )
+    parser.add_argument(
+        "-p",
+        "--port",
+        action="append",
+        dest="ports",
+        default=[],
+        help="Port mapping (host:container), can be repeated",
+    )
+    parser.add_argument(
+        "--setup",
+        help="Setup command to run after cloning (overrides config)",
+    )
+    parser.add_argument(
+        "--check",
+        help="Check command to run after setup (overrides config)",
+    )
+    parser.add_argument(
+        "-f",
+        "--file",
+        action="append",
+        dest="files",
+        default=[],
+        help="File to copy into workspace, can be repeated (overrides config)",
+    )
 
     args = parser.parse_args()
 
@@ -740,7 +798,13 @@ Workspace lives inside container - use cp-out to save work.
 
     match args.command:
         case "up":
-            return cmd_up(config, docker)
+            up_opts = UpOptions(
+                setup=args.setup,
+                check=args.check,
+                files=args.files,
+                ports=args.ports,
+            )
+            return cmd_up(config, docker, up_opts)
         case "shell" | "s":
             return cmd_shell(config, docker, args.workdir)
         case "exec":
