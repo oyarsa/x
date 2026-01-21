@@ -4,7 +4,7 @@ A Docker-based sandbox for running Claude Code in "dangerous mode" safely, isola
 
 ## Requirements
 
-- Docker Desktop for macOS (works on Apple Silicon)
+- A Docker-compatible runtime (e.g. colima on macOS)
 - Git
 - Python 3.10+
 
@@ -29,7 +29,7 @@ sandbox up
 sandbox shell
 
 # Inside the sandbox, run Claude Code
-claude --dangerously-skip-permissions
+yolo  # Enables dangerous mode
 
 # Copy files into the sandbox (they appear at /transfer/)
 sandbox cp-in data.csv
@@ -37,8 +37,14 @@ sandbox cp-in data.csv
 # Copy files out of the sandbox (they appear in ./out/)
 sandbox cp-out output/results.json
 
-# Stop the sandbox (workspace persists!)
+# Stop the sandbox (container is deleted but workspace persists!)
 sandbox down
+
+# Stops the container without deleting content
+sandbox stop
+
+# Restarts container
+sandbox start
 ```
 
 ## How It Works
@@ -52,6 +58,7 @@ sandbox down
 4. **File transfer**:
    - `cp-in`: Copies files to `./transfer/`, mounted read-only at `/transfer` in the container
    - `cp-out`: Copies files from the container to `./out/` on the host
+   - `files` field: configuration allows listing files to be copied to the repo (e.g. `.env`)
 
 ## Directory Structure
 
