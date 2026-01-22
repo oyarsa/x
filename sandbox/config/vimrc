@@ -96,11 +96,20 @@ nmap <C-c> gcc
 xmap <C-c> gc
 omap <C-c> gc
 
-" Window movement (may conflict with tmux - consider vim-tmux-navigator plugin)
-nnoremap <C-h> <C-w>h
-nnoremap <C-j> <C-w>j
-nnoremap <C-k> <C-w>k
-nnoremap <C-l> <C-w>l
+" Window movement (vim + tmux integration)
+function! TmuxMove(direction)
+    let winnr_before = winnr()
+    execute 'wincmd ' . a:direction
+    if winnr() == winnr_before
+        let tmux_dir = {'h': 'L', 'j': 'D', 'k': 'U', 'l': 'R'}[a:direction]
+        silent call system('tmux select-pane -' . tmux_dir)
+    endif
+endfunction
+
+nnoremap <silent> <C-h> :call TmuxMove('h')<CR>
+nnoremap <silent> <C-j> :call TmuxMove('j')<CR>
+nnoremap <silent> <C-k> :call TmuxMove('k')<CR>
+nnoremap <silent> <C-l> :call TmuxMove('l')<CR>
 nnoremap <C-b> <C-w>p
 
 " Replace buffer with clipboard
