@@ -140,4 +140,10 @@ function jcu --wraps='jj describe -r @-' --description 'alias jcu jj describe -r
     jj describe -r @- $argv
 end
 
+function jtp --wraps='jj tug && jgp' --description 'alias jtp jj tug && jgp'
+    jj tug && jgp $argv
+end
+
+function jde --wraps="nvim (jj diff --summary | cut -d' ' -f2)" --description "alias jde nvim (jj diff --summary | cut -d' ' -f2)"
+    nvim (jj diff --summary | cut -d' ' -f2) $argv
 end
