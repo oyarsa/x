@@ -227,6 +227,8 @@ class Docker:
             self.container_name,
             "-v",
             f"{self.config.transfer_dir}:/transfer:ro",
+            "-v",
+            "claude-sandbox-uv-cache:/home/dev/.cache/uv",
             "-e",
             f"REPO_URL={repo_url}",
             "-e",
