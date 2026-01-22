@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y \
     zstd \
     ca-certificates \
     unzip \
+    pandoc \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with sudo access (UID matches host user)
