@@ -311,6 +311,46 @@ class Git:
         return Path(url).stem  # removes .git
 
 
+# -- VCS helpers --------------------------------------------------------------
+
+
+def check_workspace_dirty(docker: Docker) -> tuple[bool, str]:
+    """Check if the workspace has uncommitted changes (git or jj).
+
+    Returns (is_dirty, message) tuple.
+    """
+    if not docker.container_running():
+        return False, ""
+
+    workdir = docker.get_workdir()
+    if workdir == "/root":
+        return False, ""
+
+    messages = []
+
+    # Check git status
+    result = docker.exec(
+        ["git", "status", "--porcelain"],
+        workdir=workdir,
+        capture=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        messages.append("Git has uncommitted changes")
+
+    # Check jj status (non-empty working copy)
+    result = docker.exec(
+        ["jj", "diff", "--stat"],
+        workdir=workdir,
+        capture=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        messages.append("Current jj change is non-empty")
+
+    if messages:
+        return True, "; ".join(messages)
+    return False, ""
+
+
 # -- Commands -----------------------------------------------------------------
 
 
@@ -502,8 +542,16 @@ def cmd_cp_out(config: Config, docker: Docker, path: str) -> int:
         return 1
 
 
-def cmd_down(config: Config, docker: Docker) -> int:
+def cmd_down(config: Config, docker: Docker, yes: bool = False) -> int:
     if docker.container_exists():
+        # Check for uncommitted changes
+        is_dirty, dirty_msg = check_workspace_dirty(docker)
+        if is_dirty and not yes:
+            log_warn(f"Workspace has uncommitted changes: {dirty_msg}")
+            response = input("Continue anyway? [y/N] ")
+            if response.lower() != "y":
+                return 1
+
         log_info("Stopping container...")
         docker.rm_container()
         log_success("Container removed (workspace preserved)")
@@ -610,6 +658,11 @@ def cmd_destroy(config: Config, docker: Docker, yes: bool = False) -> int:
     if not docker.container_exists():
         log_info("No container to destroy")
         return 0
+
+    # Check for uncommitted changes
+    is_dirty, dirty_msg = check_workspace_dirty(docker)
+    if is_dirty:
+        log_warn(f"Workspace has uncommitted changes: {dirty_msg}")
 
     if not yes:
         response = input(
@@ -789,7 +842,7 @@ Workspace lives inside container - use cp-out to save work.
                 return 1
             return cmd_cp_out(config, docker, args.args[0])
         case "down":
-            return cmd_down(config, docker)
+            return cmd_down(config, docker, args.yes)
         case "stop":
             return cmd_stop(config, docker, kill=args.kill, timeout=args.timeout)
         case "start":
