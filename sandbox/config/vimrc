@@ -2,6 +2,10 @@
 syntax on
 filetype plugin indent on
 
+" Leader keys (must be set before any <leader> mappings)
+let mapleader = " "
+let maplocalleader = ","
+
 " Highlight jj commit messages with embedded diff
 autocmd BufRead,BufNewFile *.jjdescription set filetype=gitcommit
 autocmd FileType jj set filetype=gitcommit
@@ -53,7 +57,6 @@ set visualbell t_vb=
 
 " Key mappings (these are all personal preference)
 inoremap jk <Esc>
-let mapleader = " "
 
 " Navigation mappings
 nnoremap J 6j
@@ -75,6 +78,40 @@ onoremap L $
 nnoremap M J
 xnoremap M J
 onoremap M J
+
+" Buffer and search
+nnoremap <leader>q :bwipeout<CR>
+nnoremap <leader>c :nohlsearch<CR>
+
+" System clipboard
+nnoremap <leader>p "+p
+xnoremap <leader>p "+p
+nnoremap <leader>P "+P
+xnoremap <leader>P "+P
+nnoremap <leader>y "+y
+xnoremap <leader>y "+y
+
+" Comment (requires neovim 0.10+ or vim-commentary plugin)
+nmap <C-c> gcc
+xmap <C-c> gc
+omap <C-c> gc
+
+" Window movement (may conflict with tmux - consider vim-tmux-navigator plugin)
+nnoremap <C-h> <C-w>h
+nnoremap <C-j> <C-w>j
+nnoremap <C-k> <C-w>k
+nnoremap <C-l> <C-w>l
+nnoremap <C-b> <C-w>p
+
+" Replace buffer with clipboard
+nnoremap <leader>RR ggVG"+p
+
+" Window management
+nnoremap <leader>oq <C-w>c
+nnoremap <leader>oo <C-w>o
+nnoremap <leader>oh <C-w>s
+nnoremap <leader>ov <C-w>v
+nnoremap <leader>o= <C-w>=
 
 set background=dark
 colorscheme slate
