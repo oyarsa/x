@@ -67,9 +67,10 @@ RUN npx playwright install --with-deps chromium && \
 # Copy configuration files
 COPY --chown=dev:dev config/tmux.conf /home/dev/.tmux.conf
 COPY --chown=dev:dev config/vimrc /home/dev/.vimrc
-RUN mkdir -p ~/.config/fish/conf.d
-COPY --chown=dev:dev config/config.fish /home/dev/.config/fish/config.fish
-COPY --chown=dev:dev config/conf.d/ /home/dev/.config/fish/conf.d/
+RUN mkdir -p ~/.config/fish/conf.d ~/.config/fish/functions
+COPY --chown=dev:dev config/fish/config.fish /home/dev/.config/fish/config.fish
+COPY --chown=dev:dev config/fish/conf.d/ /home/dev/.config/fish/conf.d/
+COPY --chown=dev:dev config/fish/functions/ /home/dev/.config/fish/functions/
 
 # Git configuration
 RUN git config --global credential.helper store && \
