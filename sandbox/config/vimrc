@@ -81,6 +81,8 @@ colorscheme slate
 
 " Simple buffer bar at the top (no plugins)
 set showtabline=2
+nnoremap gn :bnext<CR>
+nnoremap gp :bprev<CR>
 set tabline=%!BufferLine()
 
 function! BufferLine()
