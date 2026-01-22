@@ -60,6 +60,10 @@ RUN go install github.com/antonmedv/fx@latest
 # Install Claude Code
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
+# Install Playwright with Chromium and configure MCP
+RUN npx playwright install --with-deps chromium && \
+    claude mcp add --scope user playwright -- npx @playwright/mcp@latest --headless --no-sandbox
+
 # Copy configuration files
 COPY --chown=dev:dev config/tmux.conf /home/dev/.tmux.conf
 COPY --chown=dev:dev config/vimrc /home/dev/.vimrc
