@@ -56,9 +56,6 @@ RUN bob use v0.11.2
 # Install fleche (notification helper)
 RUN cargo install --git https://github.com/oyarsa/fleche
 
-# Install fx (JSON viewer)
-RUN go install github.com/antonmedv/fx@latest
-
 # Install Claude Code
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
