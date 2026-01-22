@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y \
     wget \
     sudo \
     tmux \
-    vim \
     fish \
     build-essential \
     kitty-terminfo \
@@ -34,7 +33,7 @@ RUN useradd -m -s /usr/bin/fish -u $UID dev && \
 # Switch to dev user for remaining setup
 USER dev
 ENV HOME=/home/dev
-ENV PATH="/home/dev/.local/share/mise/shims:/home/dev/.local/bin:/home/dev/.npm-global/bin:/home/dev/.cargo/bin:${PATH}"
+ENV PATH="/home/dev/.local/share/bob/nvim-bin:/home/dev/.local/share/mise/shims:/home/dev/.local/bin:/home/dev/.npm-global/bin:/home/dev/.cargo/bin:${PATH}"
 WORKDIR /home/dev
 
 # Create symlinks for bat and fd (Ubuntu uses different names)
@@ -51,6 +50,9 @@ RUN --mount=type=secret,id=gh_token \
     export GITHUB_TOKEN="$(cat /run/secrets/gh_token 2>/dev/null)" && \
     for i in 1 2 3; do mise install && break || sleep 5; done
 
+# Install neovim 0.11 via bob
+RUN bob use v0.11.2
+
 # Install fleche (notification helper)
 RUN cargo install --git https://github.com/oyarsa/fleche
 
@@ -66,7 +68,8 @@ RUN npx playwright install --with-deps chromium && \
 
 # Copy configuration files
 COPY --chown=dev:dev config/tmux.conf /home/dev/.tmux.conf
-COPY --chown=dev:dev config/vimrc /home/dev/.vimrc
+RUN mkdir -p /home/dev/.config/nvim
+COPY --chown=dev:dev config/vimrc /home/dev/.config/nvim/init.vim
 RUN mkdir -p ~/.config/fish/conf.d ~/.config/fish/functions
 COPY --chown=dev:dev config/fish/config.fish /home/dev/.config/fish/config.fish
 COPY --chown=dev:dev config/fish/conf.d/ /home/dev/.config/fish/conf.d/

@@ -96,8 +96,9 @@ if status is-interactive
         source ~/.fzf/shell/key-bindings.fish
     end
 
-    set -gx EDITOR vim
+    set -gx EDITOR nvim
     set -gx NODE_OPTIONS "--max-old-space-size=3072"
+    fish_add_path ~/.local/share/bob/nvim-bin
     fish_add_path ~/.local/bin
     fish_add_path ~/.npm-global/bin
     fish_add_path ~/.cargo/bin
@@ -105,7 +106,7 @@ if status is-interactive
     fish_add_path ~/go/bin
     fish_add_path ~/.fzf/bin
 
-    abbr v vim
+    abbr v nvim
     abbr r uv run
     abbr c claude
     abbr ... ../..
