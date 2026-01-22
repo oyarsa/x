@@ -57,9 +57,7 @@ RUN cargo install --git https://github.com/oyarsa/fleche
 RUN go install github.com/antonmedv/fx@latest
 
 # Install Claude Code
-RUN mkdir -p ~/.npm-global && \
-    npm config set prefix ~/.npm-global && \
-    npm install -g @anthropic-ai/claude-code
+RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Copy configuration files
 COPY --chown=dev:dev config/tmux.conf /home/dev/.tmux.conf
