@@ -3,7 +3,7 @@ function jl1 --wraps='jj log -T builtin_log_oneline --no-graph' --description 'a
 end
 
 function jen --wraps='jj next --edit' --description 'alias jen jj next --edit'
-  jj next --edit $argv
+    jj next --edit $argv
 end
 
 function jgm --wraps='jj bookmark set -r @- && jj git push' --description 'alias jgm jj bookmark set -r @- master && jj git push'
@@ -11,11 +11,11 @@ function jgm --wraps='jj bookmark set -r @- && jj git push' --description 'alias
 end
 
 function js --wraps='jj split' --description 'alias js jj split'
-  jj split $argv
+    jj split $argv
 end
 
 function jlf --wraps='jj log -T builtin_log_compact_full_description' --wraps='jj log -r "::@" -T builtin_log_compact_full_description' --description 'alias jlf jj log -r "::@" -T builtin_log_compact_full_description'
-  jj log -r "::@" -T builtin_log_compact_full_description $argv
+    jj log -r "::@" -T builtin_log_compact_full_description $argv
 end
 
 function jet --wraps=jj\ edit\ -r\ \'visible_heads\(\)\' --wraps='jj edit -r visible_heads' --description 'alias jj edit -r visible_heads'
@@ -23,11 +23,11 @@ function jet --wraps=jj\ edit\ -r\ \'visible_heads\(\)\' --wraps='jj edit -r vis
 end
 
 function jci --wraps='jj commit -i' --description 'alias jci jj commit -i'
-  jj commit -i $argv
+    jj commit -i $argv
 end
 
 function jco --wraps='jj commit' --description 'alias jco jj commit'
-  jj commit $argv
+    jj commit $argv
 end
 
 function jep --wraps='jj prev --edit' --description 'alias jep jj prev --edit'
@@ -59,7 +59,7 @@ function jnm --wraps='jj new trunk()' --description 'Create new change on top of
 end
 
 function jlm --wraps="jj log -r 'master::@'" --description "alias jlm jj log -r 'master::@'"
-  jj log -r 'master::@' $argv
+    jj log -r 'master::@' $argv
 end
 
 function jll --wraps='jj log -T builtin_log_compact_full_description' --wraps='jj log' --description 'alias jll jj log -r "::@"'
@@ -78,7 +78,7 @@ function jgp --wraps='jj git push' --description 'alias jgp jj git push'
 end
 
 function jsq --wraps='jj squash' --description 'alias jsq jj squash'
-  jj squash $argv
+    jj squash $argv
 end
 
 function jna --wraps='jj new -A' --description 'alias jna jj new -A [@]'
@@ -105,23 +105,23 @@ function jgf --wraps='jj git fetch' --description 'alias jgf jj git fetch'
 end
 
 function jc --wraps='jj describe' --wraps='jj commit' --description 'alias jc jj describe'
-  jj describe $argv
+    jj describe $argv
 end
 
 function jn --wraps='jj new' --description 'alias jn jj new'
-  jj new $argv
+    jj new $argv
 end
 
 function jdu --wraps='jj diff -r @-' --description 'alias jdu jj diff -r @-'
-  jj diff -r @- $argv
+    jj diff -r @- $argv
 end
 
 function jd --wraps='jj diff' --description 'alias jd jj diff'
-  jj diff $argv
+    jj diff $argv
 end
 
 function je --wraps='jj edit' --description 'alias je jj edit'
-  jj edit $argv
+    jj edit $argv
 end
 
 function jbu --description 'alias jbu jj bookmark set -r @-'
@@ -129,7 +129,7 @@ function jbu --description 'alias jbu jj bookmark set -r @-'
 end
 
 function jblame --wraps='jj file annotate' --description 'alias jblame jj file annotate'
-  jj file annotate $argv
+    jj file annotate $argv
 end
 
 function jsearch --wraps='jj log -r \'description("0.26")\' -T builtin_log_compact_full_description' --wraps='jj log -r \'description("$argv")\' -T builtin_log_compact_full_description' --description 'alias jsearch jj log -r \'description("$argv")\' -T builtin_log_compact_full_description'
@@ -137,5 +137,7 @@ function jsearch --wraps='jj log -r \'description("0.26")\' -T builtin_log_compa
 end
 
 function jcu --wraps='jj describe -r @-' --description 'alias jcu jj describe -r @-'
-  jj describe -r @- $argv
+    jj describe -r @- $argv
+end
+
 end
