@@ -520,22 +520,34 @@ def cmd_cp_in(config: Config, docker: Docker, path: str) -> int:
     return 0
 
 
-def cmd_cp_out(config: Config, docker: Docker, path: str) -> int:
+def cmd_cp_out(config: Config, docker: Docker, path: str | None) -> int:
     if not docker.container_running():
         log_error("Container is not running. Run 'sandbox up' first.")
         return 1
 
-    config.out_dir.mkdir(exist_ok=True)
+    # Get workspace name for per-project output directory
+    repo_name = docker.get_env("REPO_NAME")
+    if repo_name:
+        out_dir = config.out_dir / repo_name
+    else:
+        out_dir = config.out_dir
+
+    # If no path provided, just print the output directory
+    if path is None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        print(out_dir)
+        return 0
+
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     # Resolve relative paths against workspace
     if not path.startswith("/"):
-        repo_name = docker.get_env("REPO_NAME")
         if repo_name:
             path = f"/workspace/{repo_name}/{path}"
 
     try:
-        docker.copy_from(path, config.out_dir)
-        log_success(f"Copied '{path}' to out/")
+        docker.copy_from(path, out_dir)
+        log_success(f"Copied '{path}' to {out_dir}")
         return 0
     except subprocess.CalledProcessError:
         log_error(f"Failed to copy '{path}'")
@@ -837,10 +849,7 @@ Workspace lives inside container - use cp-out to save work.
                 return 1
             return cmd_cp_in(config, docker, args.args[0])
         case "cp-out" | "out":
-            if not args.args:
-                log_error("cp-out requires a path")
-                return 1
-            return cmd_cp_out(config, docker, args.args[0])
+            return cmd_cp_out(config, docker, args.args[0] if args.args else None)
         case "down":
             return cmd_down(config, docker, args.yes)
         case "stop":
