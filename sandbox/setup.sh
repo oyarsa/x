@@ -6,25 +6,25 @@ CONFIG_DIR="$SCRIPT_DIR/config"
 
 echo "==> Installing system packages..."
 sudo apt-get update && sudo apt-get install -y \
-    git \
-    curl \
-    wget \
-    sudo \
-    tmux \
-    fish \
-    build-essential \
-    kitty-terminfo \
-    ncurses-term \
-    zoxide \
-    bat \
-    fd-find \
-    ripgrep \
-    fzf \
-    jq \
-    zstd \
-    ca-certificates \
-    unzip \
-    pandoc
+	git \
+	curl \
+	wget \
+	sudo \
+	tmux \
+	fish \
+	build-essential \
+	kitty-terminfo \
+	ncurses-term \
+	zoxide \
+	bat \
+	fd-find \
+	ripgrep \
+	fzf \
+	jq \
+	zstd \
+	ca-certificates \
+	unzip \
+	pandoc
 
 echo "==> Creating symlinks for bat and fd..."
 mkdir -p ~/.local/bin
@@ -71,10 +71,10 @@ ln -sf ~/.config/nvim/init.vim ~/.vimrc
 mkdir -p ~/.config/fish/conf.d ~/.config/fish/functions
 ln -sf "$CONFIG_DIR/fish/config.fish" ~/.config/fish/config.fish
 for f in "$CONFIG_DIR/fish/conf.d/"*; do
-    ln -sf "$f" ~/.config/fish/conf.d/
+	ln -sf "$f" ~/.config/fish/conf.d/
 done
 for f in "$CONFIG_DIR/fish/functions/"*; do
-    ln -sf "$f" ~/.config/fish/functions/
+	ln -sf "$f" ~/.config/fish/functions/
 done
 
 # jujutsu
@@ -88,9 +88,12 @@ echo "==> Configuring git..."
 git config --global credential.helper store
 git config --global user.email "italo@maleldil.com"
 git config --global user.name "Italo Silva"
-git config --global init.defaultBranch main
+git config --global init.defaultBranch master
 
 echo "==> Changing default shell to fish..."
 sudo chsh -s /usr/bin/fish "$USER"
+
+echo "==> Fixing cache directory ownership..."
+sudo chown -R "$USER:$USER" ~/.cache
 
 echo "==> Done! Log out and back in (or run 'fish') to start using the new setup."

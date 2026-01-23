@@ -89,5 +89,8 @@ COPY --chown=dev:dev config/jjconfig.toml /home/dev/.jjconfig.toml
 RUN sudo mkdir -p /transfer /workspace && \
     sudo chown dev:dev /transfer /workspace
 
+# Fix any cache directories that may have been created as root (e.g., by playwright --with-deps)
+RUN sudo chown -R dev:dev ~/.cache
+
 # Default to fish shell
 CMD ["fish"]
