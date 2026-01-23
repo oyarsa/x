@@ -547,7 +547,9 @@ def cmd_cp_out(config: Config, docker: Docker, path: str | None) -> int:
 
     try:
         docker.copy_from(path, out_dir)
-        log_success(f"Copied '{path}' to {out_dir}")
+        dest_path = out_dir / Path(path).name
+        print(f"{Colors.GREEN}✓{Colors.NC} Copied '{path}' to {out_dir}", file=sys.stderr)
+        print(dest_path)
         return 0
     except subprocess.CalledProcessError:
         log_error(f"Failed to copy '{path}'")
