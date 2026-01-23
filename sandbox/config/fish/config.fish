@@ -112,12 +112,4 @@ if status is-interactive
     abbr ... ../..
     abbr .... ../../..
     alias yolo 'claude --dangerously-skip-permissions'
-
-    # Auto-cd to workspace if it exists and has content
-    if test -d /workspace
-        set -l dirs /workspace/*
-        if test (count $dirs) -gt 0
-            cd $dirs[1]
-        end
-    end
 end
