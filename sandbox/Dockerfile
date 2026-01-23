@@ -1,6 +1,5 @@
 FROM ubuntu:25.10
 
-ARG UID=501
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Core packages
