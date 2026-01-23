@@ -77,7 +77,7 @@ COPY --chown=dev:dev config/fish/functions/ /home/dev/.config/fish/functions/
 RUN git config --global credential.helper store && \
     git config --global user.email "italo@maleldil.com" && \
     git config --global user.name "Italo Silva" && \
-    git config --global init.defaultBranch main
+    git config --global init.defaultBranch master
 
 # jj configuration
 COPY --chown=dev:dev config/jjconfig.toml /home/dev/.jjconfig.toml
