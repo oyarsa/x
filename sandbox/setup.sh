@@ -80,6 +80,10 @@ done
 # jujutsu
 ln -sf "$CONFIG_DIR/jjconfig.toml" ~/.jjconfig.toml
 
+echo "==> Installing Fisher and plugins..."
+fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher"
+fish -c "fisher install gazorby/fifc"
+
 echo "==> Configuring git..."
 git config --global credential.helper store
 git config --global user.email "italo@maleldil.com"

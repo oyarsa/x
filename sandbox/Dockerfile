@@ -73,6 +73,10 @@ COPY --chown=dev:dev config/fish/config.fish /home/dev/.config/fish/config.fish
 COPY --chown=dev:dev config/fish/conf.d/ /home/dev/.config/fish/conf.d/
 COPY --chown=dev:dev config/fish/functions/ /home/dev/.config/fish/functions/
 
+# Install Fisher and plugins
+RUN fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher"
+RUN fish -c "fisher install gazorby/fifc"
+
 # Git configuration
 RUN git config --global credential.helper store && \
     git config --global user.email "italo@maleldil.com" && \
