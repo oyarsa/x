@@ -96,11 +96,6 @@ if status is-interactive
         source ~/.fzf/shell/key-bindings.fish
     end
 
-    set -gx EDITOR nvim
-    set -gx NODE_OPTIONS "--max-old-space-size=3072"
-    set -gx XDG_CONFIG_HOME "$HOME/.config"
-    set -gx fifc_editor nvim
-    set -gx fifc_keybinding \cx
     fish_add_path ~/.local/share/bob/nvim-bin
     fish_add_path ~/.local/bin
     fish_add_path ~/.npm-global/bin
