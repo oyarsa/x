@@ -106,7 +106,7 @@ if status is-interactive
 
     abbr v nvim
     abbr r uv run
-    abbr c claude
+    abbr j just
     abbr ... ../..
     abbr .... ../../..
     alias yolo 'claude --dangerously-skip-permissions'
