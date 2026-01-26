@@ -11,13 +11,13 @@ import sys
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Annotated, Any, Self
+from typing import Annotated, Any
 
-import httpx
 import typer
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn
 
+from api import SemanticScholarAPI, extract_pdf_url
 from config import CONFERENCE_PATTERNS, ConferencePattern, Paper
 
 app = typer.Typer(
@@ -31,184 +31,65 @@ app = typer.Typer(
 console = Console()
 
 
-class SemanticScholarAPI:
-    """Async client for Semantic Scholar API."""
+async def get_papers_by_venues(
+    api: SemanticScholarAPI,
+    venues: list[str],
+    year_range: tuple[int, int] | None = None,
+) -> list[Paper]:
+    """Get all papers from multiple venues using bulk API.
 
-    BASE_URL = "https://api.semanticscholar.org/graph/v1"
+    Args:
+        api: SemanticScholarAPI instance
+        venues: List of venue names to search for
+        year_range: Optional (start_year, end_year) tuple
 
-    def __init__(self, api_key: str) -> None:
-        self.api_key = api_key
-        self.headers = {"x-api-key": api_key}
-        self._client: httpx.AsyncClient | None = None
-        self._lock = asyncio.Lock()
-        self._last_request_time: float = 0
+    Returns:
+        List of Paper objects
+    """
+    papers: list[Paper] = []
+    token: str | None = None
 
-    async def __aenter__(self) -> Self:
-        """Initialise the HTTP client."""
-        self._client = httpx.AsyncClient(timeout=30.0, headers=self.headers)
-        return self
+    year_query: str | None = None
+    if year_range:
+        start, end = year_range
+        year_query = f"{start}-{end}"
 
-    async def __aexit__(self, *args: object) -> None:
-        """Close the HTTP client."""
-        if self._client:
-            await self._client.aclose()
-            self._client = None
+    venue_query = ",".join(venues)
 
-    async def _rate_limit(self) -> None:
-        """Ensure at least 3 seconds between requests."""
-        async with self._lock:
-            now = asyncio.get_event_loop().time()
-            elapsed = now - self._last_request_time
-            if elapsed < 3.0:
-                await asyncio.sleep(3.0 - elapsed)
-            self._last_request_time = asyncio.get_event_loop().time()
+    while True:
+        try:
+            result = await api.search_papers_bulk(
+                venue=venue_query,
+                year=year_query,
+                token=token,
+            )
 
-    async def search_papers_bulk(
-        self,
-        venue: str,
-        year: str | None = None,
-        token: str | None = None,
-        fields: list[str] | None = None,
-    ) -> dict[str, Any]:
-        """Search for papers using the Semantic Scholar bulk API.
+            data: list[dict[str, Any]] = result.get("data", [])
+            for item in data:
+                pdf_url, pdf_source = extract_pdf_url(item)
 
-        Args:
-            venue: Venue name to filter by
-            year: Year or year range (e.g., "2024" or "2020-2025")
-            token: Continuation token for pagination
-            fields: List of fields to return
-
-        Returns:
-            API response dictionary with total, data, and optional token
-        """
-        if self._client is None:
-            raise RuntimeError("API client not initialised. Use 'async with' context.")
-
-        await self._rate_limit()
-
-        if fields is None:
-            fields = [
-                "paperId",
-                "title",
-                "year",
-                "venue",
-                "citationCount",
-                "fieldsOfStudy",
-                "url",
-                "openAccessPdf",
-                "externalIds",
-            ]
-
-        params: dict[str, str] = {
-            "venue": venue,
-            "fields": ",".join(fields),
-        }
-
-        if year:
-            params["year"] = year
-
-        if token:
-            params["token"] = token
-
-        response = await self._client.get(
-            f"{self.BASE_URL}/paper/search/bulk",
-            params=params,
-        )
-        response.raise_for_status()
-        return response.json()
-
-    async def get_papers_by_venues(
-        self,
-        venues: list[str],
-        year_range: tuple[int, int] | None = None,
-    ) -> list[Paper]:
-        """Get all papers from multiple venues using bulk API.
-
-        Args:
-            venues: List of venue names to search for (comma-separated in API)
-            year_range: Optional (start_year, end_year) tuple
-
-        Returns:
-            List of Paper objects
-        """
-        papers: list[Paper] = []
-        token: str | None = None
-
-        # Build year query if specified
-        year_query: str | None = None
-        if year_range:
-            start, end = year_range
-            year_query = f"{start}-{end}"
-
-        # Join venues with comma for API
-        venue_query = ",".join(venues)
-
-        while True:
-            try:
-                result = await self.search_papers_bulk(
-                    venue=venue_query,
-                    year=year_query,
-                    token=token,
+                paper = Paper(
+                    paper_id=item.get("paperId", ""),
+                    title=item.get("title", ""),
+                    year=item.get("year"),
+                    venue=item.get("venue"),
+                    citation_count=item.get("citationCount"),
+                    fields_of_study=item.get("fieldsOfStudy") or [],
+                    url=item.get("url", ""),
+                    open_access_pdf=pdf_url,
+                    pdf_source=pdf_source,
                 )
+                papers.append(paper)
 
-                data = result.get("data", [])
-                for item in data:
-                    # openAccessPdf is {"url": "..."} or None (url can be empty string)
-                    pdf_info = item.get("openAccessPdf")
-                    pdf_url = pdf_info.get("url") if pdf_info else None
-                    if pdf_url == "":
-                        pdf_url = None
-
-                    # Track PDF source
-                    pdf_source: str | None = None
-                    if pdf_url:
-                        pdf_source = "S2"
-                    else:
-                        # Fall back to ArXiv or ACL Anthology if openAccessPdf is missing
-                        external_ids: dict[str, Any] = item.get("externalIds") or {}
-                        if arxiv_id := external_ids.get("ArXiv"):
-                            pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
-                            pdf_source = "ArXiv"
-                        elif (doi := external_ids.get("DOI")) and doi.startswith(
-                            "10.18653/v1/"
-                        ):
-                            # ACL Anthology DOIs: 10.18653/v1/2024.acl-long.123
-                            acl_id = doi.removeprefix("10.18653/v1/")
-                            pdf_url = f"https://aclanthology.org/{acl_id}.pdf"
-                            pdf_source = "ACL"
-
-                    paper = Paper(
-                        paper_id=item.get("paperId", ""),
-                        title=item.get("title", ""),
-                        year=item.get("year"),
-                        venue=item.get("venue"),
-                        citation_count=item.get("citationCount"),
-                        fields_of_study=item.get("fieldsOfStudy") or [],
-                        url=item.get("url", ""),
-                        open_access_pdf=pdf_url,
-                        pdf_source=pdf_source,
-                    )
-                    papers.append(paper)
-
-                # Check for continuation token
-                token = result.get("token")
-                if not token:
-                    break
-
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 429:
-                    console.print(
-                        "[yellow]Rate limited, waiting 60 seconds...[/yellow]"
-                    )
-                    await asyncio.sleep(60)
-                    continue
-                console.print(f"[red]HTTP error for venues '{venue_query}': {e}[/red]")
-                break
-            except Exception as e:
-                console.print(f"[red]Error for venues '{venue_query}': {e}[/red]")
+            token = result.get("token")
+            if not token:
                 break
 
-        return papers
+        except Exception as e:
+            console.print(f"[red]Error for venues '{venue_query}': {e}[/red]")
+            break
+
+    return papers
 
 
 @dataclass
@@ -241,7 +122,8 @@ async def fetch_conference_papers(
     progress.update(task_id, description=f"[cyan]Fetching {conference.name}...[/cyan]")
 
     # Fetch all venue patterns in a single batched request
-    papers = await api.get_papers_by_venues(
+    papers = await get_papers_by_venues(
+        api,
         venues=conference.venue_patterns,
         year_range=year_range,
     )

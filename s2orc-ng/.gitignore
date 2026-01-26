@@ -218,3 +218,4 @@ __marimo__/
 # Custom
 output/
 __pycache__/
+data/
