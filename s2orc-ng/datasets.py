@@ -12,15 +12,9 @@ from typing import Annotated, NoReturn, Self
 
 import httpx
 import typer
-from rich.progress import (
-    BarColumn,
-    DownloadColumn,
-    Progress,
-    TaskID,
-    TextColumn,
-    TimeRemainingColumn,
-    TransferSpeedColumn,
-)
+from tqdm import tqdm
+
+from async_utils import gather
 
 MAX_CONCURRENT_DOWNLOADS = 10
 DOWNLOAD_TIMEOUT = 3600  # 1 hour timeout for each file
@@ -137,36 +131,22 @@ async def _download(
 
         urls = dataset["files"][:limit]
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
+        print(f"Files to download: {len(urls)}")
 
-        with Progress(
-            TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
-            BarColumn(bar_width=None),
-            "[progress.percentage]{task.percentage:>3.1f}%",
-            DownloadColumn(),
-            TransferSpeedColumn(),
-            TimeRemainingColumn(),
-        ) as progress:
-            overall_task = progress.add_task(
-                "[green]Overall", total=len(urls), filename="Overall"
-            )
+        tasks: list[Awaitable[None]] = []
+        for url in urls:
+            file_name = urllib.parse.urlparse(str(url)).path.split("/")[-1]
+            file_path = output_path / file_name
+            tasks.append(_download_file(url, file_path, semaphore))
 
-            tasks: list[Awaitable[None]] = []
-            for url in urls:
-                file_name = urllib.parse.urlparse(str(url)).path.split("/")[-1]
-                file_path = output_path / file_name
-                tasks.append(
-                    _download_file(url, file_path, semaphore, progress, overall_task)
-                )
-
-            await asyncio.gather(*tasks)
+        await gather(tasks, desc="Overall")
+        print("Download complete!")
 
 
 async def _download_file(
     url: str,
     path: Path,
     semaphore: asyncio.Semaphore,
-    progress: Progress,
-    overall_task: TaskID,
 ) -> None:
     """Download a file from the given URL with a progress bar.
 
@@ -177,9 +157,8 @@ async def _download_file(
 
         for attempt in range(MAX_RETRIES):
             try:
-                await _try_download_file(url, path, part_path, progress)
+                await _try_download_file(url, path, part_path)
                 part_path.rename(path)
-                progress.advance(overall_task)
             except Exception as e:
                 print(
                     f"Error downloading {path.name}: {e}. Retrying..."
@@ -191,12 +170,9 @@ async def _download_file(
                 return
 
         print(f"Failed to download {path.name} after {MAX_RETRIES} attempts.")
-        progress.advance(overall_task)
 
 
-async def _try_download_file(
-    url: str, display_path: Path, part_path: Path, progress: Progress
-) -> None:
+async def _try_download_file(url: str, display_path: Path, part_path: Path) -> None:
     """Download the file in chunks and update progress bar.
 
     Raises on HTTP errors or timeouts.
@@ -208,18 +184,17 @@ async def _try_download_file(
         response.raise_for_status()
         total_size = int(response.headers.get("content-length", 0))
 
-        task_id = progress.add_task(
-            f"[cyan]{display_path.name}",
+        with tqdm(
             total=total_size,
-            filename=display_path.name,
-        )
-
-        async with AsyncFile(part_path) as f:
-            async for chunk in response.aiter_bytes(chunk_size=8192):
-                await f.write(chunk)
-                progress.update(task_id, advance=len(chunk))
-
-        progress.remove_task(task_id)
+            unit="B",
+            unit_scale=True,
+            desc=display_path.name[:30],
+            leave=False,
+        ) as pbar:
+            async with AsyncFile(part_path) as f:
+                async for chunk in response.aiter_bytes(chunk_size=8192):
+                    await f.write(chunk)
+                    pbar.update(len(chunk))
 
 
 class AsyncFile:
