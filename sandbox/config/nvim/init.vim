@@ -82,7 +82,6 @@ xnoremap M J
 onoremap M J
 
 " Buffer and search
-nnoremap <leader>q :bwipeout<CR>
 nnoremap <leader>c :nohlsearch<CR>
 
 " System clipboard
@@ -151,3 +150,6 @@ function! BufferLine()
     let s .= '%#TabLineFill#'
     return s
 endfunction
+
+" Load lua config
+lua require('config')

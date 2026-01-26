@@ -43,9 +43,7 @@ RUN npx playwright install --with-deps chromium && \
 
 # Copy configuration files
 COPY --chown=dev:dev config/tmux.conf /home/dev/.tmux.conf
-RUN mkdir -p /home/dev/.config/nvim
-COPY --chown=dev:dev config/vimrc /home/dev/.config/nvim/init.vim
-RUN ln -s /home/dev/.config/nvim/init.vim /home/dev/.vimrc
+COPY --chown=dev:dev config/nvim /home/dev/.config/nvim
 RUN mkdir -p ~/.config/fish/conf.d ~/.config/fish/functions
 COPY --chown=dev:dev config/fish/config.fish /home/dev/.config/fish/config.fish
 COPY --chown=dev:dev config/fish/conf.d/ /home/dev/.config/fish/conf.d/

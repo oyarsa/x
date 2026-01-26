@@ -42,9 +42,10 @@ echo "==> Linking config files..."
 ln -sf "$CONFIG_DIR/tmux.conf" ~/.tmux.conf
 
 # neovim
-mkdir -p ~/.config/nvim
-ln -sf "$CONFIG_DIR/vimrc" ~/.config/nvim/init.vim
-ln -sf ~/.config/nvim/init.vim ~/.vimrc
+mkdir -p ~/.config/nvim/lua
+ln -sf "$CONFIG_DIR/nvim/init.vim" ~/.config/nvim/init.vim
+ln -sf "$CONFIG_DIR/nvim/lua/config.lua" ~/.config/nvim/lua/config.lua
+ln -sf "$CONFIG_DIR/nvim/lua/lsp.lua" ~/.config/nvim/lua/lsp.lua
 
 # fish
 mkdir -p ~/.config/fish/conf.d ~/.config/fish/functions
