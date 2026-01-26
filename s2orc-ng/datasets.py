@@ -1,25 +1,19 @@
 """List and download Semantic Scholar datasets (standalone version)."""
 
 import asyncio
-import io
 import json
 import os
 import sys
-import urllib.parse
 from collections.abc import Awaitable
 from pathlib import Path
-from typing import Annotated, NoReturn, Self
+from typing import Annotated, NoReturn
 
 import httpx
 import typer
-from tqdm import tqdm
 
-from async_utils import gather
+from async_utils import download_file, gather, get_filename_from_url
 
 MAX_CONCURRENT_DOWNLOADS = 10
-DOWNLOAD_TIMEOUT = 3600  # 1 hour timeout for each file
-MAX_RETRIES = 3
-RETRY_DELAY = 5  # seconds
 
 app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -133,96 +127,22 @@ async def _download(
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
         print(f"Files to download: {len(urls)}")
 
-        tasks: list[Awaitable[None]] = []
+        tasks: list[Awaitable[int]] = []
         for url in urls:
-            file_name = urllib.parse.urlparse(str(url)).path.split("/")[-1]
+            file_name = get_filename_from_url(url)
             file_path = output_path / file_name
-            tasks.append(_download_file(url, file_path, semaphore))
+            tasks.append(_download_with_semaphore(url, file_path, semaphore))
 
         await gather(tasks, desc="Overall")
         print("Download complete!")
 
 
-async def _download_file(
-    url: str,
-    path: Path,
-    semaphore: asyncio.Semaphore,
-) -> None:
-    """Download a file from the given URL with a progress bar.
-
-    The file is first downloaded to a .part file and then renamed.
-    """
+async def _download_with_semaphore(
+    url: str, path: Path, semaphore: asyncio.Semaphore
+) -> int:
+    """Download a file with semaphore for concurrency control."""
     async with semaphore:
-        part_path = path.with_suffix(path.suffix + ".part")
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                await _try_download_file(url, path, part_path)
-                part_path.rename(path)
-            except Exception as e:
-                print(
-                    f"Error downloading {path.name}: {e}. Retrying..."
-                    f" (Attempt {attempt + 1}/{MAX_RETRIES})"
-                )
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(RETRY_DELAY)
-            else:
-                return
-
-        print(f"Failed to download {path.name} after {MAX_RETRIES} attempts.")
-
-
-async def _try_download_file(url: str, display_path: Path, part_path: Path) -> None:
-    """Download the file in chunks and update progress bar.
-
-    Raises on HTTP errors or timeouts.
-    """
-    async with (
-        httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT) as client,
-        client.stream("GET", url) as response,
-    ):
-        response.raise_for_status()
-        total_size = int(response.headers.get("content-length", 0))
-
-        with tqdm(
-            total=total_size,
-            unit="B",
-            unit_scale=True,
-            desc=display_path.name[:30],
-            leave=False,
-        ) as pbar:
-            async with AsyncFile(part_path) as f:
-                async for chunk in response.aiter_bytes(chunk_size=8192):
-                    await f.write(chunk)
-                    pbar.update(len(chunk))
-
-
-class AsyncFile:
-    """Async wrapper around writing bytes to a file."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self.file = None
-        self.loop = asyncio.get_event_loop()
-
-    async def __aenter__(self) -> Self:
-        """Open file in an executor."""
-
-        def _open() -> io.BufferedWriter:
-            return open(self.path, "wb")
-
-        self.file = await self.loop.run_in_executor(None, _open)
-        return self
-
-    async def __aexit__(self, *_: object) -> bool | None:
-        """Close file in an executor."""
-        assert self.file
-        await self.loop.run_in_executor(None, self.file.close)
-
-    async def write(self, data: bytes) -> int:
-        """Write to file in an executor."""
-        assert self.file
-        return await self.loop.run_in_executor(None, self.file.write, data)
+        return await download_file(url, path)
 
 
 if __name__ == "__main__":
