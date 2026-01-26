@@ -14,7 +14,10 @@ sudo apt-get update && sudo apt-get install -y \
 	kitty-terminfo \
 	zstd \
 	ca-certificates \
-	unzip
+	unzip \
+	lsof \
+	psmisc \
+	htop
 
 echo "==> Setting up PATH..."
 export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.cargo/bin:$PATH"
