@@ -230,6 +230,8 @@ class Docker:
             "-v",
             "claude-sandbox-uv-cache:/home/dev/.cache/uv",
             "-e",
+            "UV_LINK_MODE=copy",
+            "-e",
             f"REPO_URL={repo_url}",
             "-e",
             f"REPO_NAME={repo_name}",
