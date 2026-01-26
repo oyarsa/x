@@ -234,10 +234,45 @@ def paper_matches(
     return MatchResult(matched, has_acl_id, has_venue_match)
 
 
-def save_index(index_path: Path, corpus_ids: set[int]) -> None:
-    """Save corpus IDs to file."""
-    with open(index_path, "w") as f:
-        f.writelines(f"{cid}\n" for cid in sorted(corpus_ids))
+async def save_index(index_path: Path, corpus_ids: set[int]) -> None:
+    """Save corpus IDs to file (overwrites)."""
+    await asyncio.to_thread(
+        _write_lines, index_path, [f"{cid}\n" for cid in sorted(corpus_ids)]
+    )
+
+
+async def append_corpus_ids(index_path: Path, corpus_ids: set[int]) -> None:
+    """Append corpus IDs to file."""
+    await asyncio.to_thread(
+        _append_lines, index_path, [f"{cid}\n" for cid in sorted(corpus_ids)]
+    )
+
+
+async def load_processed_files(path: Path) -> set[str]:
+    """Load set of processed filenames."""
+    if not path.exists():
+        return set()
+    return await asyncio.to_thread(_read_lines_as_set, path)
+
+
+async def append_processed_file(path: Path, filename: str) -> None:
+    """Append a filename to the processed files list."""
+    await asyncio.to_thread(_append_lines, path, [f"{filename}\n"])
+
+
+def _write_lines(path: Path, lines: list[str]) -> None:
+    with open(path, "w") as f:
+        f.writelines(lines)
+
+
+def _append_lines(path: Path, lines: list[str]) -> None:
+    with open(path, "a") as f:
+        f.writelines(lines)
+
+
+def _read_lines_as_set(path: Path) -> set[str]:
+    with open(path) as f:
+        return {line for line_ in f if (line := line_.strip())}
 
 
 def save_metadata(metadata_path: Path, metadata: dict[str, Any]) -> None:
@@ -252,15 +287,36 @@ async def build_index(
     venue_patterns: list[str],
     limit_files: int | None = None,
     dry_run: bool = False,
+    force: bool = False,
 ) -> None:
-    """Build corpus ID index by filtering papers dataset."""
+    """Build corpus ID index by filtering papers dataset. Supports resume."""
     output_dir.mkdir(parents=True, exist_ok=True)
     index_path = output_dir / "corpus_ids.txt"
     metadata_path = output_dir / "index_metadata.json"
+    processed_path = output_dir / "processed_papers.txt"
 
     venue_matcher = make_venue_matcher(venue_patterns)
     stats = FilterStats()
-    corpus_ids: set[int] = set()
+
+    # Clear previous state if force flag is set
+    if force:
+        for p in [index_path, metadata_path, processed_path]:
+            if p.exists():
+                p.unlink()
+        log("Force mode: cleared previous state")
+
+    # Load existing state for resume
+    processed_files = await load_processed_files(processed_path)
+    corpus_ids: set[int]
+    if processed_files:
+        log(f"Resuming: {len(processed_files)} files already processed")
+        corpus_ids = load_corpus_ids(index_path) if index_path.exists() else set()
+        log(f"  Loaded {len(corpus_ids):,} existing corpus IDs")
+    else:
+        corpus_ids = set()
+        # Clear index file if starting fresh
+        if index_path.exists():
+            index_path.unlink()
 
     async with httpx.AsyncClient() as client:
         log("Fetching papers dataset info...")
@@ -271,18 +327,35 @@ async def build_index(
     files_to_process = dataset.files[:limit_files] if limit_files else dataset.files
     log(f"  Processing: {len(files_to_process)} files")
 
+    # Filter out already processed files
+    files_with_names = [(url, get_filename_from_url(url)) for url in files_to_process]
+    remaining_files = [
+        (url, name) for url, name in files_with_names if name not in processed_files
+    ]
+    if len(remaining_files) < len(files_to_process):
+        log(
+            f"  Skipping: {len(files_to_process) - len(remaining_files)} already processed"
+        )
+        log(f"  Remaining: {len(remaining_files)} files")
+
     if dry_run:
         log("\n[DRY RUN] Would download and process:")
-        for i, url in enumerate(files_to_process, 1):
-            filename = get_filename_from_url(url)
-            log(f"  {i}. {filename}")
+        for i, (_url, name) in enumerate(remaining_files, 1):
+            log(f"  {i}. {name}")
         log(f"\nOutput would be saved to: {index_path}")
+        return
+
+    if not remaining_files:
+        log("\nAll files already processed!")
+        log(f"Index contains {len(corpus_ids):,} corpus IDs")
         return
 
     log("")
 
-    def process_file(path: Path, idx: int, total: int) -> int:
-        """Process a downloaded file and update stats. Returns match count."""
+    def process_file(
+        path: Path, filename: str, idx: int, total: int
+    ) -> PapersFileResult:
+        """Process a downloaded file and update stats. Returns result."""
         log(f"[{idx}/{total}] Processing...")
         result = process_papers_file(path, year_range, venue_matcher, "Filtering")
         corpus_ids.update(result.corpus_ids)
@@ -295,24 +368,26 @@ async def build_index(
             f"[{idx}/{total}] "
             f"Found {len(result.corpus_ids):,} matches (total: {len(corpus_ids):,})"
         )
-        return len(result.corpus_ids)
+        return result
 
     # Pipeline: download next file while processing current
     pending_download: asyncio.Task[int] | None = None
     pending_path: Path | None = None
+    pending_filename: str = ""
     pending_idx: int = 0
+    total = len(remaining_files)
 
-    for i, url in enumerate(files_to_process, 1):
-        filename = get_filename_from_url(url)
+    for i, (url, filename) in enumerate(remaining_files, 1):
         temp_path = output_dir / f".temp_{filename}"
 
         # Start download if not already pending
         if pending_download is None:
-            log(f"[{i}/{len(files_to_process)}] Downloading {filename}...")
+            log(f"[{i}/{total}] Downloading {filename}...")
             pending_download = asyncio.create_task(
                 download_file(url, temp_path, "Downloading")
             )
             pending_path = temp_path
+            pending_filename = filename
             pending_idx = i
             continue
 
@@ -329,7 +404,7 @@ async def build_index(
             continue
 
         # Start next download
-        log(f"[{i}/{len(files_to_process)}] Downloading {filename}...")
+        log(f"[{i}/{total}] Downloading {filename}...")
         next_download = asyncio.create_task(
             download_file(url, temp_path, "Downloading")
         )
@@ -337,13 +412,17 @@ async def build_index(
         # Process completed file
         assert pending_path is not None
         try:
-            process_file(pending_path, pending_idx, len(files_to_process))
+            result = process_file(pending_path, pending_filename, pending_idx, total)
+            # Save incrementally
+            await append_corpus_ids(index_path, result.corpus_ids)
+            await append_processed_file(processed_path, pending_filename)
         finally:
             if pending_path.exists():
                 pending_path.unlink()
 
         pending_download = next_download
         pending_path = temp_path
+        pending_filename = filename
         pending_idx = i
 
     # Process last file
@@ -352,24 +431,23 @@ async def build_index(
             bytes_downloaded = await pending_download
             stats.bytes_downloaded += bytes_downloaded
             assert pending_path is not None
-            process_file(pending_path, pending_idx, len(files_to_process))
+            result = process_file(pending_path, pending_filename, pending_idx, total)
+            # Save incrementally
+            await append_corpus_ids(index_path, result.corpus_ids)
+            await append_processed_file(processed_path, pending_filename)
         finally:
             if pending_path and pending_path.exists():
                 pending_path.unlink()
 
-    # Save index
-    log(f"\nSaving index with {len(corpus_ids):,} corpus IDs...")
-    save_index(index_path, corpus_ids)
-
-    # Save metadata
+    # Save metadata (overwrites with final stats)
     metadata = {
         "release_id": dataset.release_id,
         "year_range": list(year_range),
         "venue_patterns": venue_patterns,
         "stats": {
-            "files_processed": stats.files_processed,
+            "files_processed": stats.files_processed + len(processed_files),
             "records_scanned": stats.records_scanned,
-            "records_matched": stats.records_matched,
+            "records_matched": len(corpus_ids),
             "matched_acl_only": stats.matched_acl_only,
             "matched_venue_only": stats.matched_venue_only,
             "matched_both": stats.matched_both,
@@ -378,9 +456,10 @@ async def build_index(
     }
     save_metadata(metadata_path, metadata)
 
-    log(f"Index saved to {index_path}")
-    log(f"  Files processed: {stats.files_processed}")
-    log(f"  Records matched: {stats.records_matched:,}")
+    log(f"\nIndex complete: {len(corpus_ids):,} corpus IDs")
+    log(f"  Files processed this run: {stats.files_processed}")
+    log(f"  Total files processed: {stats.files_processed + len(processed_files)}")
+    log(f"  Matches this run: {stats.records_matched:,}")
     log(f"    ACL ID only: {stats.matched_acl_only:,}")
     log(f"    Venue only: {stats.matched_venue_only:,}")
     log(f"    Both: {stats.matched_both:,}")
@@ -404,15 +483,28 @@ async def filter_s2orc(
     index_path: Path | None = None,
     limit_files: int | None = None,
     dry_run: bool = False,
+    force: bool = False,
 ) -> None:
-    """Filter s2orc_v2 dataset to extract matching papers."""
+    """Filter s2orc_v2 dataset to extract matching papers. Supports resume."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Load or find index
     if index_path is None:
         index_path = output_dir / "corpus_ids.txt"
 
+    processed_path = output_dir / "processed_s2orc.txt"
+    output_path = output_dir / "s2orc_filtered.jsonl.gz"
+    stats_path = output_dir / "filter_stats.json"
+
+    # Clear previous state if force flag is set
+    if force:
+        for p in [processed_path, output_path, stats_path]:
+            if p.exists():
+                p.unlink()
+        log("Force mode: cleared previous state")
+
     # In dry-run mode, don't require the index to exist
+    corpus_ids: set[int]
     if not dry_run:
         if not index_path.exists():
             die(f"Index file not found: {index_path}\nRun 'build-index' first.")
@@ -424,11 +516,22 @@ async def filter_s2orc(
         if not corpus_ids:
             die("Index is empty. No papers to filter.")
     else:
-        corpus_ids: set[int] = set()
+        corpus_ids = set()
         log(f"[DRY RUN] Would load index from: {index_path}")
 
+    # Load existing state for resume
+    processed_files = await load_processed_files(processed_path)
+    prior_matches = 0
+    if processed_files:
+        log(f"Resuming: {len(processed_files)} files already processed")
+        # Count existing matches
+        if output_path.exists():
+            with gzip.open(output_path, "rt") as f:
+                prior_matches = sum(1 for _ in f)
+            log(f"  Existing matches: {prior_matches:,}")
+
     stats = FilterStats()
-    output_path = output_dir / "s2orc_filtered.jsonl.gz"
+    stats.records_matched = prior_matches  # Start from existing count
 
     async with httpx.AsyncClient() as client:
         log("Fetching s2orc_v2 dataset info...")
@@ -439,33 +542,55 @@ async def filter_s2orc(
     files_to_process = dataset.files[:limit_files] if limit_files else dataset.files
     log(f"  Processing: {len(files_to_process)} files")
 
+    # Filter out already processed files
+    files_with_names = [(url, get_filename_from_url(url)) for url in files_to_process]
+    remaining_files = [
+        (url, name) for url, name in files_with_names if name not in processed_files
+    ]
+    if len(remaining_files) < len(files_to_process):
+        log(
+            f"  Skipping: {len(files_to_process) - len(remaining_files)} already processed"
+        )
+        log(f"  Remaining: {len(remaining_files)} files")
+
     if dry_run:
         log("\n[DRY RUN] Would download and process:")
-        for i, url in enumerate(files_to_process, 1):
-            filename = get_filename_from_url(url)
-            log(f"  {i}. {filename}")
+        for i, (_url, name) in enumerate(remaining_files, 1):
+            log(f"  {i}. {name}")
         log(f"\nOutput would be saved to: {output_path}")
+        return
+
+    if not remaining_files:
+        log("\nAll files already processed!")
+        log(f"  Total matches: {prior_matches:,}")
+        coverage = prior_matches / len(corpus_ids) * 100 if corpus_ids else 0
+        log(f"  Coverage: {coverage:.1f}% of index")
         return
 
     log("")
 
-    with gzip.open(output_path, "wb") as out_file:
+    # Open in append mode if resuming, write mode if starting fresh
+    open_mode = "ab" if processed_files else "wb"
+    total = len(remaining_files)
+
+    with gzip.open(output_path, open_mode) as out_file:
         # Pipeline: download next file while processing current
         pending_download: asyncio.Task[int] | None = None
         pending_path: Path | None = None
+        pending_filename: str = ""
         pending_idx: int = 0
 
-        for i, url in enumerate(files_to_process, 1):
-            filename = get_filename_from_url(url)
+        for i, (url, filename) in enumerate(remaining_files, 1):
             temp_path = output_dir / f".temp_{filename}"
 
             # Start download if not already pending
             if pending_download is None:
-                log(f"[{i}/{len(files_to_process)}] Downloading {filename}...")
+                log(f"[{i}/{total}] Downloading {filename}...")
                 pending_download = asyncio.create_task(
                     download_file(url, temp_path, "Downloading")
                 )
                 pending_path = temp_path
+                pending_filename = filename
                 pending_idx = i
                 continue
 
@@ -482,7 +607,7 @@ async def filter_s2orc(
                 continue
 
             # Start next download
-            log(f"[{i}/{len(files_to_process)}] Downloading {filename}...")
+            log(f"[{i}/{total}] Downloading {filename}...")
             next_download = asyncio.create_task(
                 download_file(url, temp_path, "Downloading")
             )
@@ -490,22 +615,25 @@ async def filter_s2orc(
             # Process completed file
             assert pending_path is not None
             try:
-                log(f"[{pending_idx}/{len(files_to_process)}] Processing...")
+                log(f"[{pending_idx}/{total}] Processing...")
                 file_matches = process_s2orc_file(
                     pending_path, corpus_ids, out_file, "Filtering"
                 )
                 stats.files_processed += 1
                 stats.records_matched += file_matches
                 log(
-                    f"[{pending_idx}/{len(files_to_process)}] "
+                    f"[{pending_idx}/{total}] "
                     f"Found {file_matches:,} matches (total: {stats.records_matched:,})"
                 )
+                # Track processed file
+                await append_processed_file(processed_path, pending_filename)
             finally:
                 if pending_path.exists():
                     pending_path.unlink()
 
             pending_download = next_download
             pending_path = temp_path
+            pending_filename = filename
             pending_idx = i
 
         # Process last file
@@ -514,16 +642,18 @@ async def filter_s2orc(
                 bytes_downloaded = await pending_download
                 stats.bytes_downloaded += bytes_downloaded
                 assert pending_path is not None
-                log(f"[{pending_idx}/{len(files_to_process)}] Processing...")
+                log(f"[{pending_idx}/{total}] Processing...")
                 file_matches = process_s2orc_file(
                     pending_path, corpus_ids, out_file, "Filtering"
                 )
                 stats.files_processed += 1
                 stats.records_matched += file_matches
                 log(
-                    f"[{pending_idx}/{len(files_to_process)}] "
+                    f"[{pending_idx}/{total}] "
                     f"Found {file_matches:,} matches (total: {stats.records_matched:,})"
                 )
+                # Track processed file
+                await append_processed_file(processed_path, pending_filename)
             finally:
                 if pending_path and pending_path.exists():
                     pending_path.unlink()
@@ -537,7 +667,7 @@ async def filter_s2orc(
             "index_path": str(index_path),
             "index_size": len(corpus_ids),
             "stats": {
-                "files_processed": stats.files_processed,
+                "files_processed": stats.files_processed + len(processed_files),
                 "records_scanned": stats.records_scanned,
                 "records_matched": stats.records_matched,
                 "bytes_downloaded": stats.bytes_downloaded,
@@ -547,7 +677,8 @@ async def filter_s2orc(
 
     log("\nFiltering complete!")
     log(f"  Output: {output_path}")
-    log(f"  Files processed: {stats.files_processed}")
+    log(f"  Files processed this run: {stats.files_processed}")
+    log(f"  Total files processed: {stats.files_processed + len(processed_files)}")
     log(f"  Records matched: {stats.records_matched:,}")
     coverage = stats.records_matched / len(corpus_ids) * 100 if corpus_ids else 0
     log(f"  Coverage: {coverage:.1f}% of index")
@@ -586,6 +717,10 @@ def cmd_build_index(
         bool,
         typer.Option("--dry-run", help="Show what would be done without downloading."),
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Ignore previous state and start fresh."),
+    ] = False,
 ) -> None:
     """Build corpus ID index by filtering the papers dataset.
 
@@ -608,7 +743,9 @@ def cmd_build_index(
     log("Filter: ACL Anthology ID OR venue pattern match")
     log("")
 
-    asyncio.run(build_index(output_dir, year_range, venue_patterns, limit, dry_run))
+    asyncio.run(
+        build_index(output_dir, year_range, venue_patterns, limit, dry_run, force)
+    )
 
 
 @app.command(name="filter")
@@ -635,6 +772,10 @@ def cmd_filter(
         bool,
         typer.Option("--dry-run", help="Show what would be done without downloading."),
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Ignore previous state and start fresh."),
+    ] = False,
 ) -> None:
     """Filter s2orc_v2 dataset to extract full-text for indexed papers.
 
@@ -650,7 +791,7 @@ def cmd_filter(
     log("=== Filtering s2orc_v2 dataset ===")
     log("")
 
-    asyncio.run(filter_s2orc(output_dir, index, limit, dry_run))
+    asyncio.run(filter_s2orc(output_dir, index, limit, dry_run, force))
 
 
 @app.command(name="run")
@@ -685,6 +826,10 @@ def cmd_run(
         bool,
         typer.Option("--dry-run", help="Show what would be done without downloading."),
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Ignore previous state and start fresh."),
+    ] = False,
 ) -> None:
     """Run the full pipeline: build index, then filter s2orc_v2.
 
@@ -709,12 +854,14 @@ def cmd_run(
     if not skip_index:
         log("--- Phase 1: Building corpus ID index ---")
         log("")
-        asyncio.run(build_index(output_dir, year_range, venue_patterns, limit, dry_run))
+        asyncio.run(
+            build_index(output_dir, year_range, venue_patterns, limit, dry_run, force)
+        )
         log("")
 
     log("--- Phase 2: Filtering s2orc_v2 ---")
     log("")
-    asyncio.run(filter_s2orc(output_dir, None, limit, dry_run))
+    asyncio.run(filter_s2orc(output_dir, None, limit, dry_run, force))
 
 
 @app.command(name="stats")
