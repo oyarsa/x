@@ -36,6 +36,7 @@ set grepprg=rg\ --vimgrep\ --smart-case
 
 " UI and UX improvements
 set wildmenu
+set wildmode=longest:full,full
 set scrolloff=8
 set sidescrolloff=5
 set nowrap
