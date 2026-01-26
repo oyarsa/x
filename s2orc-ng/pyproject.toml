@@ -10,6 +10,7 @@ dependencies = [
     "plotly>=6.5.0",
     "plotly-stubs>=0.0.6",
     "rich>=14.2.0",
+    "tqdm>=4.67.1",
     "typer>=0.20.0",
 ]
 
