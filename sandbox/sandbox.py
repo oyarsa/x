@@ -219,6 +219,10 @@ class Docker:
     def start_container(
         self, *, repo_name: str, repo_url: str, ports: list[str] | None = None
     ) -> None:
+        # Create out directory for this repo
+        out_dir = self.config.out_dir / repo_name
+        out_dir.mkdir(parents=True, exist_ok=True)
+
         cmd = [
             "docker",
             "run",
@@ -227,6 +231,8 @@ class Docker:
             self.container_name,
             "-v",
             f"{self.config.transfer_dir}:/transfer:ro",
+            "-v",
+            f"{out_dir}:/out",
             "-v",
             "claude-sandbox-uv-cache:/home/dev/.cache/uv",
             "-e",
@@ -465,6 +471,7 @@ def cmd_up(config: Config, docker: Docker, opts: UpOptions | None = None) -> int
     print("  sandbox down       - Stop the sandbox")
     print()
     log_info("Inside the sandbox, run 'yolo' to start Claude")
+    log_info("Write to /out inside container - files appear in ./out/")
     log_warn("Workspace lives inside container - use cp-out to save work")
     return 0
 
