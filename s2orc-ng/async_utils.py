@@ -1,12 +1,12 @@
 """Async utilities for downloads and progress tracking."""
 
 import asyncio
-import io
 import urllib.parse
 from collections.abc import Awaitable, Iterable
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
+import aiofiles
 import httpx
 import tqdm.asyncio as tqdm_asyncio
 from tqdm import tqdm
@@ -44,40 +44,6 @@ async def gather[T](
     See also `asyncio.gather`.
     """
     return await tqdm_asyncio.gather(*tasks, desc=desc, **kwargs)  # type: ignore
-
-
-# === Async file I/O ===
-
-
-class AsyncFile:
-    """Async wrapper around writing bytes to a file."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self.file: io.BufferedWriter | None = None
-        self.loop = asyncio.get_event_loop()
-        self.bytes_written = 0
-
-    async def __aenter__(self) -> Self:
-        """Open file in an executor."""
-
-        def _open() -> io.BufferedWriter:
-            return open(self.path, "wb")
-
-        self.file = await self.loop.run_in_executor(None, _open)
-        return self
-
-    async def __aexit__(self, *_: object) -> bool | None:
-        """Close file in an executor."""
-        assert self.file
-        await self.loop.run_in_executor(None, self.file.close)
-
-    async def write(self, data: bytes) -> int:
-        """Write to file in an executor."""
-        assert self.file
-        n = await self.loop.run_in_executor(None, self.file.write, data)
-        self.bytes_written += n
-        return n
 
 
 # === Download utilities ===
@@ -128,8 +94,10 @@ async def _try_download_file(
             desc=desc or display_path.name[:30],
             leave=False,
         ) as pbar:
-            async with AsyncFile(part_path) as f:
+            bytes_written = 0
+            async with aiofiles.open(part_path, "wb") as f:
                 async for chunk in response.aiter_bytes(chunk_size=8192):
                     await f.write(chunk)
+                    bytes_written += len(chunk)
                     pbar.update(len(chunk))
-                return f.bytes_written
+            return bytes_written

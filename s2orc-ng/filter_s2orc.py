@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
+import aiofiles
 import httpx
 import typer
 from tqdm import tqdm
@@ -253,43 +254,29 @@ def paper_matches(
 
 async def save_index(index_path: Path, corpus_ids: set[int]) -> None:
     """Save corpus IDs to file (overwrites)."""
-    await asyncio.to_thread(
-        _write_lines, index_path, [f"{cid}\n" for cid in sorted(corpus_ids)]
-    )
+    async with aiofiles.open(index_path, "w") as f:
+        await f.writelines(f"{cid}\n" for cid in sorted(corpus_ids))
 
 
 async def append_corpus_ids(index_path: Path, corpus_ids: set[int]) -> None:
     """Append corpus IDs to file."""
-    await asyncio.to_thread(
-        _append_lines, index_path, [f"{cid}\n" for cid in sorted(corpus_ids)]
-    )
+    async with aiofiles.open(index_path, "a") as f:
+        await f.writelines(f"{cid}\n" for cid in sorted(corpus_ids))
 
 
 async def load_processed_files(path: Path) -> set[str]:
     """Load set of processed filenames."""
     if not path.exists():
         return set()
-    return await asyncio.to_thread(_read_lines_as_set, path)
+    async with aiofiles.open(path) as f:
+        content = await f.read()
+        return {line.strip() for line in content.splitlines() if line.strip()}
 
 
 async def append_processed_file(path: Path, filename: str) -> None:
     """Append a filename to the processed files list."""
-    await asyncio.to_thread(_append_lines, path, [f"{filename}\n"])
-
-
-def _write_lines(path: Path, lines: list[str]) -> None:
-    with open(path, "w") as f:
-        f.writelines(lines)
-
-
-def _append_lines(path: Path, lines: list[str]) -> None:
-    with open(path, "a") as f:
-        f.writelines(lines)
-
-
-def _read_lines_as_set(path: Path) -> set[str]:
-    with open(path) as f:
-        return {line for line_ in f if (line := line_.strip())}
+    async with aiofiles.open(path, "a") as f:
+        await f.write(f"{filename}\n")
 
 
 def save_metadata(metadata_path: Path, metadata: dict[str, Any]) -> None:
@@ -481,7 +468,8 @@ async def append_matched_ids(path: Path, ids: set[int]) -> None:
     """Append newly matched corpus IDs to tracking file."""
     if not ids:
         return
-    await asyncio.to_thread(_append_lines, path, [f"{cid}\n" for cid in sorted(ids)])
+    async with aiofiles.open(path, "a") as f:
+        await f.writelines(f"{cid}\n" for cid in sorted(ids))
 
 
 async def filter_s2orc(
