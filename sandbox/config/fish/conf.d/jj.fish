@@ -147,3 +147,17 @@ end
 function jde --wraps="nvim (jj diff --summary | cut -d' ' -f2)" --description "alias jde nvim (jj diff --summary | cut -d' ' -f2)"
     nvim (jj diff --summary | cut -d' ' -f2) $argv
 end
+
+function jup --wraps='jj rebase' --description 'alias jup jj rebase -b [branch] -A [target]'
+    switch (count $argv)
+        case 0
+            jj rebase -b @ -A master
+        case 1
+            jj rebase -b $argv[1] -A master
+        case 2
+            jj rebase -b $argv[1] -A $argv[2]
+        case '*'
+            echo "Usage: jup [branch] [target]"
+            return 1
+    end
+end
