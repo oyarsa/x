@@ -2,6 +2,9 @@ FROM ubuntu:25.10
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Allow fzf docs (vim plugin) despite docker image excludes
+RUN echo 'path-include=/usr/share/doc/fzf/*' > /etc/dpkg/dpkg.cfg.d/fzf
+
 # Core packages
 RUN apt-get update && apt-get install -y \
     git \
@@ -16,6 +19,7 @@ RUN apt-get update && apt-get install -y \
     lsof \
     psmisc \
     htop \
+    fzf \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with sudo access (UID matches host user)

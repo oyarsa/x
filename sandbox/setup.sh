@@ -4,6 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/config"
 
+echo "==> Allowing fzf docs (vim plugin) despite any dpkg excludes..."
+echo 'path-include=/usr/share/doc/fzf/*' | sudo tee /etc/dpkg/dpkg.cfg.d/fzf > /dev/null
+
 echo "==> Installing system packages..."
 sudo apt-get update && sudo apt-get install -y \
 	git \
@@ -18,6 +21,7 @@ sudo apt-get update && sudo apt-get install -y \
 	lsof \
 	psmisc \
 	htop
+	fzf
 
 echo "==> Setting up PATH..."
 export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.cargo/bin:$PATH"
