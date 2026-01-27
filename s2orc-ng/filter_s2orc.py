@@ -288,6 +288,7 @@ async def build_index(
     limit_files: int | None = None,
     dry_run: bool = False,
     force: bool = False,
+    max_concurrent: int = 1,
 ) -> None:
     """Build corpus ID index by filtering papers dataset. Supports resume."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -350,94 +351,69 @@ async def build_index(
         log(f"Index contains {len(corpus_ids):,} corpus IDs")
         return
 
+    log(f"  Concurrent downloads: {max_concurrent}")
     log("")
 
-    def process_file(
-        path: Path, filename: str, idx: int, total: int
+    total = len(remaining_files)
+    # Lock for thread-safe updates to shared state
+    state_lock = asyncio.Lock()
+
+    async def process_file_async(
+        path: Path, filename: str, idx: int
     ) -> PapersFileResult:
-        """Process a downloaded file and update stats. Returns result."""
-        log(f"[{idx}/{total}] Processing...")
-        result = process_papers_file(path, year_range, venue_matcher, "Filtering")
-        corpus_ids.update(result.corpus_ids)
-        stats.files_processed += 1
-        stats.records_matched += len(result.corpus_ids)
-        stats.matched_acl_only += result.acl_only
-        stats.matched_venue_only += result.venue_only
-        stats.matched_both += result.both
+        """Process a downloaded file in a thread pool. Returns result."""
+        result = await asyncio.to_thread(
+            process_papers_file, path, year_range, venue_matcher, f"[{idx}/{total}]"
+        )
+        async with state_lock:
+            corpus_ids.update(result.corpus_ids)
+            stats.files_processed += 1
+            stats.records_matched += len(result.corpus_ids)
+            stats.matched_acl_only += result.acl_only
+            stats.matched_venue_only += result.venue_only
+            stats.matched_both += result.both
+            current_total = len(corpus_ids)
         log(
             f"[{idx}/{total}] "
-            f"Found {len(result.corpus_ids):,} matches (total: {len(corpus_ids):,})"
+            f"Found {len(result.corpus_ids):,} matches (total: {current_total:,})"
         )
         return result
 
-    # Pipeline: download next file while processing current
-    pending_download: asyncio.Task[int] | None = None
-    pending_path: Path | None = None
-    pending_filename: str = ""
-    pending_idx: int = 0
-    total = len(remaining_files)
-
-    for i, (url, filename) in enumerate(remaining_files, 1):
+    async def download_and_process(url: str, filename: str, idx: int) -> None:
+        """Download a file, process it, and save results."""
         temp_path = output_dir / f".temp_{filename}"
-
-        # Start download if not already pending
-        if pending_download is None:
-            log(f"[{i}/{total}] Downloading {filename}...")
-            pending_download = asyncio.create_task(
-                download_file(url, temp_path, "Downloading")
-            )
-            pending_path = temp_path
-            pending_filename = filename
-            pending_idx = i
-            continue
-
-        # Wait for pending download
         try:
-            bytes_downloaded = await pending_download
-            stats.bytes_downloaded += bytes_downloaded
+            log(f"[{idx}/{total}] Downloading {filename}...")
+            bytes_downloaded = await download_file(url, temp_path, f"[{idx}/{total}]")
+            async with state_lock:
+                stats.bytes_downloaded += bytes_downloaded
+
+            log(f"[{idx}/{total}] Processing {filename}...")
+            result = await process_file_async(temp_path, filename, idx)
+
+            # Save incrementally (with lock to prevent interleaved writes)
+            async with state_lock:
+                await append_corpus_ids(index_path, result.corpus_ids)
+                await append_processed_file(processed_path, filename)
         except Exception as e:
-            err(f"Download failed: {e}")
-            if pending_path and pending_path.exists():
-                pending_path.unlink()
-            pending_download = None
-            pending_path = None
-            continue
-
-        # Start next download
-        log(f"[{i}/{total}] Downloading {filename}...")
-        next_download = asyncio.create_task(
-            download_file(url, temp_path, "Downloading")
-        )
-
-        # Process completed file
-        assert pending_path is not None
-        try:
-            result = process_file(pending_path, pending_filename, pending_idx, total)
-            # Save incrementally
-            await append_corpus_ids(index_path, result.corpus_ids)
-            await append_processed_file(processed_path, pending_filename)
+            err(f"[{idx}/{total}] Failed {filename}: {e}")
         finally:
-            if pending_path.exists():
-                pending_path.unlink()
+            if temp_path.exists():
+                temp_path.unlink()
 
-        pending_download = next_download
-        pending_path = temp_path
-        pending_filename = filename
-        pending_idx = i
+    # Process files with limited concurrency
+    semaphore = asyncio.Semaphore(max_concurrent)
 
-    # Process last file
-    if pending_download is not None:
-        try:
-            bytes_downloaded = await pending_download
-            stats.bytes_downloaded += bytes_downloaded
-            assert pending_path is not None
-            result = process_file(pending_path, pending_filename, pending_idx, total)
-            # Save incrementally
-            await append_corpus_ids(index_path, result.corpus_ids)
-            await append_processed_file(processed_path, pending_filename)
-        finally:
-            if pending_path and pending_path.exists():
-                pending_path.unlink()
+    async def bounded_download_and_process(url: str, filename: str, idx: int) -> None:
+        async with semaphore:
+            await download_and_process(url, filename, idx)
+
+    # Launch all tasks (semaphore limits actual concurrency)
+    tasks = [
+        asyncio.create_task(bounded_download_and_process(url, filename, i))
+        for i, (url, filename) in enumerate(remaining_files, 1)
+    ]
+    await asyncio.gather(*tasks)
 
     # Save metadata (overwrites with final stats)
     metadata = {
@@ -484,6 +460,7 @@ async def filter_s2orc(
     limit_files: int | None = None,
     dry_run: bool = False,
     force: bool = False,
+    max_concurrent: int = 1,
 ) -> None:
     """Filter s2orc_v2 dataset to extract matching papers. Supports resume."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -567,96 +544,83 @@ async def filter_s2orc(
         log(f"  Coverage: {coverage:.1f}% of index")
         return
 
+    log(f"  Concurrent downloads: {max_concurrent}")
     log("")
+
+    total = len(remaining_files)
+    # Lock for thread-safe updates to shared state and output file
+    state_lock = asyncio.Lock()
 
     # Open in append mode if resuming, write mode if starting fresh
     open_mode = "ab" if processed_files else "wb"
-    total = len(remaining_files)
 
     with gzip.open(output_path, open_mode) as out_file:
-        # Pipeline: download next file while processing current
-        pending_download: asyncio.Task[int] | None = None
-        pending_path: Path | None = None
-        pending_filename: str = ""
-        pending_idx: int = 0
 
-        for i, (url, filename) in enumerate(remaining_files, 1):
+        async def download_and_process(url: str, filename: str, idx: int) -> None:
+            """Download a file, process it, and save results."""
+            nonlocal stats
             temp_path = output_dir / f".temp_{filename}"
-
-            # Start download if not already pending
-            if pending_download is None:
-                log(f"[{i}/{total}] Downloading {filename}...")
-                pending_download = asyncio.create_task(
-                    download_file(url, temp_path, "Downloading")
-                )
-                pending_path = temp_path
-                pending_filename = filename
-                pending_idx = i
-                continue
-
-            # Wait for pending download
             try:
-                bytes_downloaded = await pending_download
-                stats.bytes_downloaded += bytes_downloaded
+                log(f"[{idx}/{total}] Downloading {filename}...")
+                bytes_downloaded = await download_file(
+                    url, temp_path, f"[{idx}/{total}]"
+                )
+
+                log(f"[{idx}/{total}] Processing {filename}...")
+                # Process in thread pool, but write to output with lock
+                file_matches = 0
+                matched_records: list[str] = []
+
+                def process_and_collect() -> int:
+                    nonlocal matched_records
+                    matches = 0
+                    with gzip.open(temp_path, "rt", encoding="utf-8") as f:
+                        for line in tqdm(f, desc=f"[{idx}/{total}]", leave=False):
+                            if line.strip():
+                                record = json.loads(line)
+                                corpus_id = record.get("corpusid")
+                                if corpus_id and corpus_id in corpus_ids:
+                                    matched_records.append(json.dumps(record) + "\n")
+                                    matches += 1
+                    return matches
+
+                file_matches = await asyncio.to_thread(process_and_collect)
+
+                # Write results with lock to prevent interleaved output
+                async with state_lock:
+                    for record_line in matched_records:
+                        out_file.write(record_line.encode())
+                    stats.bytes_downloaded += bytes_downloaded
+                    stats.files_processed += 1
+                    stats.records_matched += file_matches
+                    current_total = stats.records_matched
+                    await append_processed_file(processed_path, filename)
+
+                log(
+                    f"[{idx}/{total}] "
+                    f"Found {file_matches:,} matches (total: {current_total:,})"
+                )
             except Exception as e:
-                err(f"Download failed: {e}")
-                if pending_path and pending_path.exists():
-                    pending_path.unlink()
-                pending_download = None
-                pending_path = None
-                continue
-
-            # Start next download
-            log(f"[{i}/{total}] Downloading {filename}...")
-            next_download = asyncio.create_task(
-                download_file(url, temp_path, "Downloading")
-            )
-
-            # Process completed file
-            assert pending_path is not None
-            try:
-                log(f"[{pending_idx}/{total}] Processing...")
-                file_matches = process_s2orc_file(
-                    pending_path, corpus_ids, out_file, "Filtering"
-                )
-                stats.files_processed += 1
-                stats.records_matched += file_matches
-                log(
-                    f"[{pending_idx}/{total}] "
-                    f"Found {file_matches:,} matches (total: {stats.records_matched:,})"
-                )
-                # Track processed file
-                await append_processed_file(processed_path, pending_filename)
+                err(f"[{idx}/{total}] Failed {filename}: {e}")
             finally:
-                if pending_path.exists():
-                    pending_path.unlink()
+                if temp_path.exists():
+                    temp_path.unlink()
 
-            pending_download = next_download
-            pending_path = temp_path
-            pending_filename = filename
-            pending_idx = i
+        # Process files with limited concurrency
+        semaphore = asyncio.Semaphore(max_concurrent)
 
-        # Process last file
-        if pending_download is not None:
-            try:
-                bytes_downloaded = await pending_download
-                stats.bytes_downloaded += bytes_downloaded
-                assert pending_path is not None
-                log(f"[{pending_idx}/{total}] Processing...")
-                file_matches = process_s2orc_file(
-                    pending_path, corpus_ids, out_file, "Filtering"
-                )
-                stats.files_processed += 1
-                stats.records_matched += file_matches
-                log(
-                    f"[{pending_idx}/{total}] "
-                    f"Found {file_matches:,} matches (total: {stats.records_matched:,})"
-                )
-                # Track processed file
-                await append_processed_file(processed_path, pending_filename)
-            finally:
-                if pending_path and pending_path.exists():
-                    pending_path.unlink()
+        async def bounded_download_and_process(
+            url: str, filename: str, idx: int
+        ) -> None:
+            async with semaphore:
+                await download_and_process(url, filename, idx)
+
+        # Launch all tasks (semaphore limits actual concurrency)
+        tasks = [
+            asyncio.create_task(bounded_download_and_process(url, filename, i))
+            for i, (url, filename) in enumerate(remaining_files, 1)
+        ]
+        await asyncio.gather(*tasks)
 
     # Save stats
     stats_path = output_dir / "filter_stats.json"
@@ -713,6 +677,10 @@ def cmd_build_index(
             "--limit", "-n", help="Limit number of files to process (for testing)."
         ),
     ] = None,
+    concurrent: Annotated[
+        int,
+        typer.Option("--concurrent", "-c", help="Number of concurrent downloads."),
+    ] = 10,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Show what would be done without downloading."),
@@ -744,7 +712,9 @@ def cmd_build_index(
     log("")
 
     asyncio.run(
-        build_index(output_dir, year_range, venue_patterns, limit, dry_run, force)
+        build_index(
+            output_dir, year_range, venue_patterns, limit, dry_run, force, concurrent
+        )
     )
 
 
@@ -768,6 +738,10 @@ def cmd_filter(
             "--limit", "-n", help="Limit number of files to process (for testing)."
         ),
     ] = None,
+    concurrent: Annotated[
+        int,
+        typer.Option("--concurrent", "-c", help="Number of concurrent downloads."),
+    ] = 10,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Show what would be done without downloading."),
@@ -791,7 +765,7 @@ def cmd_filter(
     log("=== Filtering s2orc_v2 dataset ===")
     log("")
 
-    asyncio.run(filter_s2orc(output_dir, index, limit, dry_run, force))
+    asyncio.run(filter_s2orc(output_dir, index, limit, dry_run, force, concurrent))
 
 
 @app.command(name="run")
@@ -809,7 +783,7 @@ def cmd_run(
             "--venue",
             "-v",
             help="Additional venue regex pattern to match. Can be repeated. "
-            "Papers are matched if they have an ACL Anthology ID OR match a venue pattern.",
+            "Papers are matched if they have an ACL Anthology ID OR match venue patterns.",
         ),
     ] = None,
     limit: Annotated[
@@ -818,6 +792,10 @@ def cmd_run(
             "--limit", "-n", help="Limit number of files per phase (for testing)."
         ),
     ] = None,
+    concurrent: Annotated[
+        int,
+        typer.Option("--concurrent", "-c", help="Number of concurrent downloads."),
+    ] = 10,
     skip_index: Annotated[
         bool,
         typer.Option("--skip-index", help="Skip index building (use existing index)."),
@@ -855,13 +833,21 @@ def cmd_run(
         log("--- Phase 1: Building corpus ID index ---")
         log("")
         asyncio.run(
-            build_index(output_dir, year_range, venue_patterns, limit, dry_run, force)
+            build_index(
+                output_dir,
+                year_range,
+                venue_patterns,
+                limit,
+                dry_run,
+                force,
+                concurrent,
+            )
         )
         log("")
 
     log("--- Phase 2: Filtering s2orc_v2 ---")
     log("")
-    asyncio.run(filter_s2orc(output_dir, None, limit, dry_run, force))
+    asyncio.run(filter_s2orc(output_dir, None, limit, dry_run, force, concurrent))
 
 
 @app.command(name="stats")
