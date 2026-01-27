@@ -20,7 +20,8 @@ sudo apt-get update && sudo apt-get install -y \
 	unzip \
 	lsof \
 	psmisc \
-	htop
+	htop \
+	cloc \
 	fzf
 
 echo "==> Setting up PATH..."
