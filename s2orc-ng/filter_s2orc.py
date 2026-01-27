@@ -15,6 +15,7 @@ import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
@@ -72,6 +73,22 @@ def die(message: str) -> NoReturn:
     """Print error message to stderr and exit."""
     err(message)
     sys.exit(1)
+
+
+def backup_files(files: list[Path], backup_suffix: str = ".bak") -> list[Path]:
+    """Back up files before deleting. Returns list of backed up files."""
+    backed_up: list[Path] = []
+    for p in files:
+        if p.exists():
+            backup_path = p.with_suffix(p.suffix + backup_suffix)
+            # If backup already exists, add timestamp
+            if backup_path.exists():
+                timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+                backup_path = p.with_suffix(f"{p.suffix}.{timestamp}{backup_suffix}")
+            p.rename(backup_path)
+            log(f"  Backed up: {p.name} -> {backup_path.name}")
+            backed_up.append(backup_path)
+    return backed_up
 
 
 # === Data structures ===
@@ -301,10 +318,8 @@ async def build_index(
 
     # Clear previous state if force flag is set
     if force:
-        for p in [index_path, metadata_path, processed_path]:
-            if p.exists():
-                p.unlink()
-        log("Force mode: cleared previous state")
+        log("Force mode: backing up previous state...")
+        backup_files([index_path, metadata_path, processed_path])
 
     # Load existing state for resume
     processed_files = await load_processed_files(processed_path)
@@ -475,10 +490,8 @@ async def filter_s2orc(
 
     # Clear previous state if force flag is set
     if force:
-        for p in [processed_path, output_path, stats_path]:
-            if p.exists():
-                p.unlink()
-        log("Force mode: cleared previous state")
+        log("Force mode: backing up previous state...")
+        backup_files([processed_path, output_path, stats_path])
 
     # In dry-run mode, don't require the index to exist
     corpus_ids: set[int]
