@@ -285,6 +285,38 @@ def save_metadata(metadata_path: Path, metadata: dict[str, Any]) -> None:
         json.dump(metadata, f, indent=2)
 
 
+async def download_and_extract_index(
+    url: str,
+    filename: str,
+    idx: int,
+    total: int,
+    output_dir: Path,
+    year_range: tuple[int, int],
+    venue_matcher: Callable[[str], bool],
+) -> tuple[PapersFileResult, int]:
+    """Download a papers file and extract matching corpus IDs.
+
+    Returns (result, bytes_downloaded). Caller handles state updates.
+    """
+    temp_path = output_dir / f".temp_{filename}"
+    try:
+        log(f"[{idx}/{total}] Downloading {filename}...")
+        bytes_downloaded = await download_file(url, temp_path, f"[{idx}/{total}]")
+
+        log(f"[{idx}/{total}] Processing {filename}...")
+        result = await asyncio.to_thread(
+            process_papers_file,
+            temp_path,
+            year_range,
+            venue_matcher,
+            f"[{idx}/{total}]",
+        )
+        return result, bytes_downloaded
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
 async def build_index(
     output_dir: Path,
     year_range: tuple[int, int],
@@ -357,62 +389,35 @@ async def build_index(
     log("")
 
     total = len(remaining_files)
-    # Lock for thread-safe updates to shared state
     state_lock = asyncio.Lock()
-
-    async def process_file_async(
-        path: Path, filename: str, idx: int
-    ) -> PapersFileResult:
-        """Process a downloaded file in a thread pool. Returns result."""
-        result = await asyncio.to_thread(
-            process_papers_file, path, year_range, venue_matcher, f"[{idx}/{total}]"
-        )
-        async with state_lock:
-            corpus_ids.update(result.corpus_ids)
-            stats.files_processed += 1
-            stats.records_matched += len(result.corpus_ids)
-            stats.matched_acl_only += result.acl_only
-            stats.matched_venue_only += result.venue_only
-            stats.matched_both += result.both
-            current_total = len(corpus_ids)
-        log(
-            f"[{idx}/{total}] "
-            f"Found {len(result.corpus_ids):,} matches (total: {current_total:,})"
-        )
-        return result
-
-    async def download_and_process(url: str, filename: str, idx: int) -> None:
-        """Download a file, process it, and save results."""
-        temp_path = output_dir / f".temp_{filename}"
-        try:
-            log(f"[{idx}/{total}] Downloading {filename}...")
-            bytes_downloaded = await download_file(url, temp_path, f"[{idx}/{total}]")
-            async with state_lock:
-                stats.bytes_downloaded += bytes_downloaded
-
-            log(f"[{idx}/{total}] Processing {filename}...")
-            result = await process_file_async(temp_path, filename, idx)
-
-            # Save incrementally (with lock to prevent interleaved writes)
-            async with state_lock:
-                await append_corpus_ids(index_path, result.corpus_ids)
-                await append_processed_file(processed_path, filename)
-        except Exception as e:
-            err(f"[{idx}/{total}] Failed {filename}: {e}")
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
-
-    # Process files with limited concurrency
     semaphore = asyncio.Semaphore(max_concurrent)
 
-    async def bounded_download_and_process(url: str, filename: str, idx: int) -> None:
+    async def worker(url: str, filename: str, idx: int) -> None:
         async with semaphore:
-            await download_and_process(url, filename, idx)
+            try:
+                result, bytes_dl = await download_and_extract_index(
+                    url, filename, idx, total, output_dir, year_range, venue_matcher
+                )
+                async with state_lock:
+                    corpus_ids.update(result.corpus_ids)
+                    stats.bytes_downloaded += bytes_dl
+                    stats.files_processed += 1
+                    stats.records_matched += len(result.corpus_ids)
+                    stats.matched_acl_only += result.acl_only
+                    stats.matched_venue_only += result.venue_only
+                    stats.matched_both += result.both
+                    current_total = len(corpus_ids)
+                    await append_corpus_ids(index_path, result.corpus_ids)
+                    await append_processed_file(processed_path, filename)
+                log(
+                    f"[{idx}/{total}] "
+                    f"Found {len(result.corpus_ids):,} matches (total: {current_total:,})"
+                )
+            except Exception as e:
+                err(f"[{idx}/{total}] Failed {filename}: {e}")
 
-    # Launch all tasks (semaphore limits actual concurrency)
     tasks = [
-        asyncio.create_task(bounded_download_and_process(url, filename, i))
+        asyncio.create_task(worker(url, filename, i))
         for i, (url, filename) in enumerate(remaining_files, 1)
     ]
     await asyncio.gather(*tasks)
@@ -470,6 +475,53 @@ async def append_matched_ids(path: Path, ids: set[int]) -> None:
         return
     async with aiofiles.open(path, "a") as f:
         await f.writelines(f"{cid}\n" for cid in sorted(ids))
+
+
+def process_s2orc_file_to_list(
+    path: Path,
+    corpus_ids: set[int],
+    desc: str,
+) -> list[str]:
+    """Process s2orc file and return matching records as JSON lines.
+
+    Runs in a thread pool since gzip doesn't support async.
+    """
+    matched: list[str] = []
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        for line in tqdm(f, desc=desc, leave=False):
+            if line.strip():
+                record = json.loads(line)
+                corpus_id = record.get("corpusid")
+                if corpus_id and corpus_id in corpus_ids:
+                    matched.append(json.dumps(record) + "\n")
+    return matched
+
+
+async def download_and_extract_s2orc(
+    url: str,
+    filename: str,
+    idx: int,
+    total: int,
+    output_dir: Path,
+    corpus_ids: set[int],
+) -> tuple[list[str], int]:
+    """Download an s2orc file and extract matching records.
+
+    Returns (matched_records, bytes_downloaded). Caller handles writing results.
+    """
+    temp_path = output_dir / f".temp_{filename}"
+    try:
+        log(f"[{idx}/{total}] Downloading {filename}...")
+        bytes_downloaded = await download_file(url, temp_path, f"[{idx}/{total}]")
+
+        log(f"[{idx}/{total}] Processing {filename}...")
+        matched = await asyncio.to_thread(
+            process_s2orc_file_to_list, temp_path, corpus_ids, f"[{idx}/{total}]"
+        )
+        return matched, bytes_downloaded
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 async def filter_s2orc(
@@ -576,81 +628,37 @@ async def filter_s2orc(
     log("")
 
     total = len(remaining_files)
-    # Lock for thread-safe updates to shared state and output file
     state_lock = asyncio.Lock()
-
-    # Open in append mode if resuming, write mode if starting fresh
     open_mode = "ab" if processed_files else "wb"
 
     with gzip.open(output_path, open_mode) as out_file:
-
-        async def download_and_process(url: str, filename: str, idx: int) -> None:
-            """Download a file, process it, and save results."""
-            nonlocal stats
-            temp_path = output_dir / f".temp_{filename}"
-            try:
-                log(f"[{idx}/{total}] Downloading {filename}...")
-                bytes_downloaded = await download_file(
-                    url, temp_path, f"[{idx}/{total}]"
-                )
-
-                log(f"[{idx}/{total}] Processing {filename}...")
-                # Process in thread pool, but write to output with lock
-                file_matches = 0
-                matched_records: list[str] = []
-
-                def process_and_collect() -> int:
-                    nonlocal matched_records
-                    matches = 0
-                    with gzip.open(temp_path, "rt", encoding="utf-8") as f:
-                        for line in tqdm(f, desc=f"[{idx}/{total}]", leave=False):
-                            if line.strip():
-                                record = json.loads(line)
-                                corpus_id = record.get("corpusid")
-                                if corpus_id and corpus_id in corpus_ids:
-                                    matched_records.append(json.dumps(record) + "\n")
-                                    matches += 1
-                    return matches
-
-                file_matches = await asyncio.to_thread(process_and_collect)
-
-                # Write results with lock to prevent interleaved output
-                async with state_lock:
-                    for record_line in matched_records:
-                        out_file.write(record_line.encode())
-                    stats.bytes_downloaded += bytes_downloaded
-                    stats.files_processed += 1
-                    stats.records_matched += file_matches
-                    current_total = stats.records_matched
-                    # Track matched corpus IDs for incremental index updates
-                    matched_in_file = {
-                        json.loads(r)["corpusid"] for r in matched_records
-                    }
-                    await append_matched_ids(matched_ids_path, matched_in_file)
-                    await append_processed_file(processed_path, filename)
-
-                log(
-                    f"[{idx}/{total}] "
-                    f"Found {file_matches:,} matches (total: {current_total:,})"
-                )
-            except Exception as e:
-                err(f"[{idx}/{total}] Failed {filename}: {e}")
-            finally:
-                if temp_path.exists():
-                    temp_path.unlink()
-
-        # Process files with limited concurrency
         semaphore = asyncio.Semaphore(max_concurrent)
 
-        async def bounded_download_and_process(
-            url: str, filename: str, idx: int
-        ) -> None:
+        async def worker(url: str, filename: str, idx: int) -> None:
             async with semaphore:
-                await download_and_process(url, filename, idx)
+                try:
+                    records, bytes_dl = await download_and_extract_s2orc(
+                        url, filename, idx, total, output_dir, corpus_ids
+                    )
+                    async with state_lock:
+                        for record_line in records:
+                            out_file.write(record_line.encode())
+                        stats.bytes_downloaded += bytes_dl
+                        stats.files_processed += 1
+                        stats.records_matched += len(records)
+                        current_total = stats.records_matched
+                        matched_in_file = {json.loads(r)["corpusid"] for r in records}
+                        await append_matched_ids(matched_ids_path, matched_in_file)
+                        await append_processed_file(processed_path, filename)
+                    log(
+                        f"[{idx}/{total}] "
+                        f"Found {len(records):,} matches (total: {current_total:,})"
+                    )
+                except Exception as e:
+                    err(f"[{idx}/{total}] Failed {filename}: {e}")
 
-        # Launch all tasks (semaphore limits actual concurrency)
         tasks = [
-            asyncio.create_task(bounded_download_and_process(url, filename, i))
+            asyncio.create_task(worker(url, filename, i))
             for i, (url, filename) in enumerate(remaining_files, 1)
         ]
         await asyncio.gather(*tasks)
