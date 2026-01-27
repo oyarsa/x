@@ -469,6 +469,21 @@ def load_corpus_ids(path: Path) -> set[int]:
     return ids
 
 
+def load_matched_ids(path: Path) -> set[int]:
+    """Load already-matched corpus IDs from tracking file."""
+    if not path.exists():
+        return set()
+    with open(path) as f:
+        return {int(line) for line_ in f if (line := line_.strip())}
+
+
+async def append_matched_ids(path: Path, ids: set[int]) -> None:
+    """Append newly matched corpus IDs to tracking file."""
+    if not ids:
+        return
+    await asyncio.to_thread(_append_lines, path, [f"{cid}\n" for cid in sorted(ids)])
+
+
 async def filter_s2orc(
     output_dir: Path,
     index_path: Path | None = None,
@@ -488,10 +503,12 @@ async def filter_s2orc(
     output_path = output_dir / "s2orc_filtered.jsonl.gz"
     stats_path = output_dir / "filter_stats.json"
 
+    matched_ids_path = output_dir / "matched_corpus_ids.txt"
+
     # Clear previous state if force flag is set
     if force:
         log("Force mode: backing up previous state...")
-        backup_files([processed_path, output_path, stats_path])
+        backup_files([processed_path, output_path, stats_path, matched_ids_path])
 
     # In dry-run mode, don't require the index to exist
     corpus_ids: set[int]
@@ -511,6 +528,7 @@ async def filter_s2orc(
 
     # Load existing state for resume
     processed_files = await load_processed_files(processed_path)
+    matched_ids = load_matched_ids(matched_ids_path)
     prior_matches = 0
     if processed_files:
         log(f"Resuming: {len(processed_files)} files already processed")
@@ -519,6 +537,15 @@ async def filter_s2orc(
             with gzip.open(output_path, "rt") as f:
                 prior_matches = sum(1 for _ in f)
             log(f"  Existing matches: {prior_matches:,}")
+
+        # Detect index growth - find IDs that haven't been searched for yet
+        new_ids = corpus_ids - matched_ids
+        if new_ids:
+            log(f"  Index grew: {len(new_ids):,} new IDs to search for")
+            # Clear processed files to force re-scan, but keep output (append mode)
+            processed_files: set[str] = set()
+            # Use new_ids instead of corpus_ids for matching
+            corpus_ids = new_ids
 
     stats = FilterStats()
     stats.records_matched = prior_matches  # Start from existing count
@@ -607,6 +634,11 @@ async def filter_s2orc(
                     stats.files_processed += 1
                     stats.records_matched += file_matches
                     current_total = stats.records_matched
+                    # Track matched corpus IDs for incremental index updates
+                    matched_in_file = {
+                        json.loads(r)["corpusid"] for r in matched_records
+                    }
+                    await append_matched_ids(matched_ids_path, matched_in_file)
                     await append_processed_file(processed_path, filename)
 
                 log(
