@@ -105,8 +105,9 @@ vim.api.nvim_create_autocmd("InsertEnter", {
 -- FZF and Grep
 --------------------------------------------------------------------------------
 
--- fzf setup (apt files installation dir)
-vim.opt.rtp:append('/usr/share/doc/fzf/examples')
+-- fzf setup: use FZF_VIM_PATH env var, or fall back to Ubuntu apt path
+local fzf_path = os.getenv('FZF_VIM_PATH') or '/usr/share/doc/fzf/examples'
+vim.opt.rtp:append(fzf_path)
 
 -- <leader>ff Open fzf window to search files with preview
 vim.keymap.set('n', '<leader>ff', ':Files<CR>', { desc = "Fuzzy find files" })
