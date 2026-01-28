@@ -1106,6 +1106,30 @@ def cmd_config_push(config: Config, docker: Docker) -> int:
     return 0
 
 
+def cmd_config_pull(config: Config, docker: Docker) -> int:
+    if not docker.container_running():
+        log_error("Container is not running. Run 'sandbox up' first.")
+        return 1
+
+    config_dir = config.script_dir / "config"
+    if not config_dir.exists():
+        log_error(f"Config directory not found: {config_dir}")
+        return 1
+
+    # Pull files from container to local
+    count = 0
+    for local_path, home_rel in iter_config_files(config_dir):
+        container_path = f"/home/dev/{home_rel}"
+        container_content = docker.read_file(container_path)
+
+        if container_content is not None:
+            local_path.write_text(container_content)
+            count += 1
+
+    log_success(f"Pulled {count} config files from container")
+    return 0
+
+
 # -- Main ---------------------------------------------------------------------
 
 
@@ -1146,6 +1170,7 @@ Commands:
   config status        List config files with sync status
   config diff          Show content differences for config files
   config push          Push local config files to container
+  config pull          Pull config files from container to local
 
 Run from a git repository directory. The sandbox will clone that repo.
 Workspace lives inside container - use cp-out to save work.
@@ -1295,7 +1320,7 @@ Workspace lives inside container - use cp-out to save work.
                     return 1
         case "config":
             if not args.args:
-                log_error("config requires a subcommand: status, diff, push")
+                log_error("config requires a subcommand: status, diff, push, pull")
                 return 1
             subcmd = args.args[0]
             match subcmd:
@@ -1305,6 +1330,8 @@ Workspace lives inside container - use cp-out to save work.
                     return cmd_config_diff(config, docker)
                 case "push":
                     return cmd_config_push(config, docker)
+                case "pull":
+                    return cmd_config_pull(config, docker)
                 case _:
                     log_error(f"Unknown config subcommand: {subcmd}")
                     return 1
