@@ -27,12 +27,19 @@ sudo apt-get update && sudo apt-get install -y \
 echo "==> Setting up PATH..."
 export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.cargo/bin:$PATH"
 
+echo "==> Linking config files..."
+
+# Transform dot_ prefix to . and create symlinks
+for src in $(find "$CONFIG_DIR" -type f); do
+	rel="${src#$CONFIG_DIR/}"
+	# Transform dot_ prefix to . in path components
+	dst="$HOME/$(echo "$rel" | sed 's/dot_/./g')"
+	mkdir -p "$(dirname "$dst")"
+	ln -sf "$src" "$dst"
+done
+
 echo "==> Installing mise..."
 curl https://mise.run | sh
-
-echo "==> Configuring mise..."
-mkdir -p ~/.config/mise
-ln -sf "$CONFIG_DIR/mise.toml" ~/.config/mise/config.toml
 
 echo "==> Installing mise tools..."
 ~/.local/bin/mise install
@@ -43,17 +50,6 @@ curl -fsSL https://claude.ai/install.sh | bash
 echo "==> Installing Playwright with Chromium..."
 npx playwright install --with-deps chromium
 claude mcp add --scope user playwright -- npx @playwright/mcp@latest --headless --no-sandbox
-
-echo "==> Linking config files..."
-
-# Transform dot_ prefix to . and create symlinks
-for src in $(find "$CONFIG_DIR" -type f ! -name 'mise.toml'); do
-	rel="${src#$CONFIG_DIR/}"
-	# Transform dot_ prefix to . in path components
-	dst="$HOME/$(echo "$rel" | sed 's/dot_/./g')"
-	mkdir -p "$(dirname "$dst")"
-	ln -sf "$src" "$dst"
-done
 
 echo "==> Installing Fisher and plugins..."
 fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher"

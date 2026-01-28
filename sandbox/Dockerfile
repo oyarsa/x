@@ -33,11 +33,18 @@ ENV HOME=/home/dev
 ENV PATH="/home/dev/.local/share/mise/shims:/home/dev/.local/bin:/home/dev/.npm-global/bin:/home/dev/.cargo/bin:${PATH}"
 WORKDIR /home/dev
 
+# Copy configuration files (dot_ prefix becomes . in destination)
+COPY --chown=dev:dev config/ /tmp/config/
+RUN for src in $(find /tmp/config -type f); do \
+      rel="${src#/tmp/config/}"; \
+      dst="$HOME/$(echo "$rel" | sed 's/dot_/./g')"; \
+      mkdir -p "$(dirname "$dst")"; \
+      cp "$src" "$dst"; \
+    done && rm -rf /tmp/config
+
 # Install mise and tools
 ENV MISE_YES=1
 RUN curl https://mise.run | sh
-RUN mkdir -p ~/.config/mise
-COPY --chown=dev:dev config/mise.toml /home/dev/.config/mise/config.toml
 RUN --mount=type=secret,id=gh_token \
     export GITHUB_TOKEN="$(cat /run/secrets/gh_token 2>/dev/null)" && \
     for i in 1 2 3; do mise install && break || sleep 5; done
@@ -48,15 +55,6 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # Install Playwright with Chromium and configure MCP
 RUN npx playwright install --with-deps chromium && \
     claude mcp add --scope user playwright -- npx @playwright/mcp@latest --headless --no-sandbox
-
-# Copy configuration files (dot_ prefix becomes . in destination)
-COPY --chown=dev:dev config/ /tmp/config/
-RUN for src in $(find /tmp/config -type f ! -name 'mise.toml'); do \
-      rel="${src#/tmp/config/}"; \
-      dst="$HOME/$(echo "$rel" | sed 's/dot_/./g')"; \
-      mkdir -p "$(dirname "$dst")"; \
-      cp "$src" "$dst"; \
-    done && rm -rf /tmp/config
 
 # Install Fisher and plugins
 RUN fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher"
