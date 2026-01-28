@@ -1115,7 +1115,7 @@ Workspace lives inside container - use cp-out to save work.
         name = args.args[0]
         args.args = args.args[1:]
     # Commands that don't require a workspace name
-    no_name_commands = {"list", "rebuild", "init", "config", "help", "-h", "--help"}
+    no_name_commands = {"list", "rebuild", "init", "help", "-h", "--help"}
     # snapshot ls/rm don't need workspace, but snapshot new does
     if args.command == "snapshot" and args.args and args.args[0] in ("ls", "list", "rm", "delete"):
         no_name_commands.add("snapshot")
