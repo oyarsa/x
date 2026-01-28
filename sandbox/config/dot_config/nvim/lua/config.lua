@@ -290,4 +290,3 @@ vim.api.nvim_create_autocmd("FileType", {
         vim.wo.colorcolumn = cc or ""
     end,
 })
-vim.api.nvim_set_hl(0, 'ColorColumn', { bg = '#4a4a4a' })
