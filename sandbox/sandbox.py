@@ -35,6 +35,16 @@ def transform_dot_path(path: str) -> str:
     )
 
 
+def reverse_dot_path(path: str) -> str:
+    """Transform leading dots to dot_ prefixes in path components."""
+    parts = Path(path).parts
+    return str(
+        Path(
+            *[f"dot_{p[1:]}" if p.startswith(".") else p for p in parts]
+        )
+    )
+
+
 def iter_config_files(config_dir: Path) -> Iterator[tuple[Path, str]]:
     """Yield (local_path, home_relative_path) for each config file."""
     for local_path in config_dir.rglob("*"):
@@ -1116,9 +1126,30 @@ def cmd_config_pull(config: Config, docker: Docker) -> int:
         log_error(f"Config directory not found: {config_dir}")
         return 1
 
-    # Pull files from container to local
-    count = 0
+    # Build mapping of transformed paths to local files
+    local_files: dict[str, Path] = {}
     for local_path, home_rel in iter_config_files(config_dir):
+        local_files[home_rel] = local_path
+
+    # Track directories we care about for finding extra files in container
+    tracked_dirs: set[str] = set()
+    for home_rel in local_files:
+        parent = str(Path(home_rel).parent)
+        if parent != ".":
+            tracked_dirs.add(parent)
+
+    # Get container files in tracked directories
+    container_files: set[str] = set()
+    for dir_path in tracked_dirs:
+        container_dir = f"/home/dev/{dir_path}"
+        for rel_file in docker.list_dir(container_dir):
+            full_rel = f"{dir_path}/{rel_file}"
+            if not should_ignore(rel_file):
+                container_files.add(full_rel)
+
+    # Pull existing local files from container
+    count = 0
+    for home_rel, local_path in local_files.items():
         container_path = f"/home/dev/{home_rel}"
         container_content = docker.read_file(container_path)
 
@@ -1126,7 +1157,24 @@ def cmd_config_pull(config: Config, docker: Docker) -> int:
             local_path.write_text(container_content)
             count += 1
 
-    log_success(f"Pulled {count} config files from container")
+    # Pull new files that only exist in container
+    new_count = 0
+    for container_rel in container_files:
+        if container_rel not in local_files:
+            container_path = f"/home/dev/{container_rel}"
+            container_content = docker.read_file(container_path)
+
+            if container_content is not None:
+                local_rel = reverse_dot_path(container_rel)
+                local_path = config_dir / local_rel
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                local_path.write_text(container_content)
+                new_count += 1
+
+    if new_count:
+        log_success(f"Pulled {count} config files, added {new_count} new files")
+    else:
+        log_success(f"Pulled {count} config files from container")
     return 0
 
 
