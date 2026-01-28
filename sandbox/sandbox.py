@@ -1084,7 +1084,16 @@ def cmd_config_status(config: Config, docker: Docker) -> int:
     return 0
 
 
-def cmd_config_push(config: Config, docker: Docker) -> int:
+def normalize_file_arg(file_arg: str) -> str:
+    """Normalize file argument to home-relative path (e.g., .config/fish/config.fish)."""
+    if file_arg.startswith("~/"):
+        return file_arg[2:]
+    if file_arg.startswith("."):
+        return file_arg
+    return file_arg
+
+
+def cmd_config_push(config: Config, docker: Docker, files: list[str] | None = None) -> int:
     if not docker.container_running():
         log_error("Container is not running. Run 'sandbox up' first.")
         return 1
@@ -1094,9 +1103,24 @@ def cmd_config_push(config: Config, docker: Docker) -> int:
         log_error(f"Config directory not found: {config_dir}")
         return 1
 
+    # Normalize file filter
+    filter_files: set[str] | None = None
+    if files:
+        filter_files = {normalize_file_arg(f) for f in files}
+
+    # Collect files to push
+    files_to_push: list[tuple[Path, str]] = []
+    for local_path, home_rel in iter_config_files(config_dir):
+        if filter_files is None or home_rel in filter_files:
+            files_to_push.append((local_path, home_rel))
+
+    if not files_to_push:
+        log_error("No matching files to push")
+        return 1
+
     # Create all needed directories first
     dirs_to_create: set[str] = set()
-    for _, home_rel in iter_config_files(config_dir):
+    for _, home_rel in files_to_push:
         parent = str(Path(home_rel).parent)
         if parent != ".":
             dirs_to_create.add(f"/home/dev/{parent}")
@@ -1106,7 +1130,7 @@ def cmd_config_push(config: Config, docker: Docker) -> int:
 
     # Copy files
     count = 0
-    for local_path, home_rel in iter_config_files(config_dir):
+    for local_path, home_rel in files_to_push:
         container_path = f"/home/dev/{home_rel}"
         docker.copy_to(local_path, container_path)
         docker.exec(["chown", "dev:dev", container_path])
@@ -1116,7 +1140,7 @@ def cmd_config_push(config: Config, docker: Docker) -> int:
     return 0
 
 
-def cmd_config_pull(config: Config, docker: Docker) -> int:
+def cmd_config_pull(config: Config, docker: Docker, files: list[str] | None = None) -> int:
     if not docker.container_running():
         log_error("Container is not running. Run 'sandbox up' first.")
         return 1
@@ -1125,6 +1149,11 @@ def cmd_config_pull(config: Config, docker: Docker) -> int:
     if not config_dir.exists():
         log_error(f"Config directory not found: {config_dir}")
         return 1
+
+    # Normalize file filter
+    filter_files: set[str] | None = None
+    if files:
+        filter_files = {normalize_file_arg(f) for f in files}
 
     # Build mapping of transformed paths to local files
     local_files: dict[str, Path] = {}
@@ -1150,6 +1179,8 @@ def cmd_config_pull(config: Config, docker: Docker) -> int:
     # Pull existing local files from container
     count = 0
     for home_rel, local_path in local_files.items():
+        if filter_files is not None and home_rel not in filter_files:
+            continue
         container_path = f"/home/dev/{home_rel}"
         container_content = docker.read_file(container_path)
 
@@ -1161,6 +1192,8 @@ def cmd_config_pull(config: Config, docker: Docker) -> int:
     new_count = 0
     for container_rel in container_files:
         if container_rel not in local_files:
+            if filter_files is not None and container_rel not in filter_files:
+                continue
             container_path = f"/home/dev/{container_rel}"
             container_content = docker.read_file(container_path)
 
@@ -1170,6 +1203,10 @@ def cmd_config_pull(config: Config, docker: Docker) -> int:
                 local_path.parent.mkdir(parents=True, exist_ok=True)
                 local_path.write_text(container_content)
                 new_count += 1
+
+    if filter_files and count == 0 and new_count == 0:
+        log_error("No matching files to pull")
+        return 1
 
     if new_count:
         log_success(f"Pulled {count} config files, added {new_count} new files")
@@ -1217,8 +1254,8 @@ Commands:
   snapshot rm <name>   Delete a snapshot
   config status        List config files with sync status
   config diff          Show content differences for config files
-  config push          Push local config files to container
-  config pull          Pull config files from container to local
+  config push [files]  Push local config files to container
+  config pull [files]  Pull config files from container to local
 
 Run from a git repository directory. The sandbox will clone that repo.
 Workspace lives inside container - use cp-out to save work.
@@ -1371,15 +1408,16 @@ Workspace lives inside container - use cp-out to save work.
                 log_error("config requires a subcommand: status, diff, push, pull")
                 return 1
             subcmd = args.args[0]
+            subargs = args.args[1:]
             match subcmd:
                 case "status" | "st":
                     return cmd_config_status(config, docker)
                 case "diff":
                     return cmd_config_diff(config, docker)
                 case "push":
-                    return cmd_config_push(config, docker)
+                    return cmd_config_push(config, docker, subargs or None)
                 case "pull":
-                    return cmd_config_pull(config, docker)
+                    return cmd_config_pull(config, docker, subargs or None)
                 case _:
                     log_error(f"Unknown config subcommand: {subcmd}")
                     return 1
