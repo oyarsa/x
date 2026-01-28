@@ -1,3 +1,5 @@
+vim.api.nvim_create_user_command("Lsp", "checkhealth vim.lsp", {})
+
 local function setup_lsp_keymaps(bufnr)
     local function map(mode, lhs, rhs, desc)
         vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, desc = desc })
@@ -27,8 +29,10 @@ local function setup_lsp_keymaps(bufnr)
     -- [d and ]d to previous/next diagnostic are nvim defaults now
 end
 
-vim.keymap.set("n", "<leader>ld", vim.diagnostic.open_float, { desc = "Open diagnostic float" })
-vim.keymap.set("n", "<leader>lD", vim.diagnostic.setqflist, { desc = "Open diagnostics in quickfix list" })
+vim.keymap.set("n", "<leader>ld", vim.diagnostic.open_float,
+    { desc = "Open diagnostic float" })
+vim.keymap.set("n", "<leader>lD", vim.diagnostic.setqflist,
+    { desc = "Open diagnostics in quickfix list" })
 
 local function setup_auto_format(bufnr, client)
     if
@@ -68,81 +72,11 @@ vim.diagnostic.config({
     },
 })
 
-vim.lsp.config("rust_analyzer", {
-    cmd = { "rust-analyzer" },
-    filetypes = { "rust" },
-    root_markers = { "Cargo.toml", "rust-project.json" },
-    settings = {
-        ["rust-analyzer"] = {
-            check = {
-                command = "clippy",
-                features = "all",
-            },
-        },
-    },
-})
-
-vim.lsp.config("pyright", {
-    cmd = { "pyright-langserver", "--stdio" },
-    filetypes = { "python" },
-    root_markers = { "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "pyrightconfig.json" },
-    settings = {
-        python = {
-            analysis = {
-                autoSearchPaths = true,
-                useLibraryCodeForTypes = true,
-                diagnosticMode = "openFilesOnly",
-            },
-        },
-    },
-})
-
-vim.lsp.config("ruff", {
-    cmd = { "ruff", "server" },
-    filetypes = { "python" },
-    root_markers = { "pyproject.toml", "ruff.toml", ".ruff.toml" },
-})
-
-vim.lsp.config("ts_ls", {
-    cmd = { "typescript-language-server", "--stdio" },
-    filetypes = { "javascript", "javascriptreact", "typescript", "typescriptreact" },
-    root_markers = { "tsconfig.json", "jsconfig.json", "package.json" },
-})
-
-vim.lsp.config("eslint", {
-    cmd = { "vscode-eslint-language-server", "--stdio" },
-    filetypes = { "javascript", "javascriptreact", "typescript", "typescriptreact" },
-    root_markers = { ".eslintrc", ".eslintrc.js", ".eslintrc.json", "eslint.config.js", "eslint.config.mjs" },
-    settings = {
-        workingDirectories = { mode = "auto" },
-    },
-})
-
--- vim.lsp.config("lua_ls", {
---     cmd = { 'lua-language-server' },
---     filetypes = { 'lua' },
---     root_markers = { '.luarc.json', '.luarc.jsonc', '.git' },
--- })
-
 vim.lsp.enable({
     "rust_analyzer",
     "pyright",
     "ruff",
     "ts_ls",
-    -- "lua_ls",
+    "lua_ls",
     "eslint",
 })
-
--- vim.api.nvim_exec_autocmds("FileType", { buffer = 0 })
-
--- 1. Define the config in a variable
-local lua_opts = {
-    cmd = { 'lua-language-server' },
-    filetypes = { 'lua' },
-    root_markers = { '.luarc.json', '.luarc.jsonc', '.git' },
-}
-
--- 2. Register it with the LSP system (for future buffers)
-vim.lsp.config("lua_ls", lua_opts)
-vim.lsp.enable("lua_ls")
-
