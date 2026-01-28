@@ -124,7 +124,7 @@ nnoremap <leader>o= <C-w>=
 
 set termguicolors
 set background=dark
-colorscheme slate
+colorscheme melange
 " Change highlight on open/close parens
 highlight MatchParen guibg=#444444 guifg=#f0c674 gui=underline,bold
 highlight ColorColumn guibg=#4a4a4a
