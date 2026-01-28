@@ -1,3 +1,5 @@
+lua require("init")
+
 " Enable syntax highlighting
 syntax on
 filetype plugin indent on
@@ -128,5 +130,3 @@ nnoremap gp :bprev<CR>
 
 " Enable ripgrep smartcase for :grep
 set grepprg=rg\ --vimgrep\ --smart-case
-
-lua require("init")

@@ -146,12 +146,3 @@ local lua_opts = {
 vim.lsp.config("lua_ls", lua_opts)
 vim.lsp.enable("lua_ls")
 
--- 3. Check the startup buffer (The Fix)
--- If the current buffer is already a Lua file, start the client immediately.
-if vim.bo.filetype == 'lua' then
-    vim.lsp.start(lua_opts)
-end
-
-if vim.bo.filetype == 'lua' then
-    vim.lsp.start({ name = "lua_ls" })
-end
