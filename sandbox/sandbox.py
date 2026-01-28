@@ -956,21 +956,34 @@ def cmd_config_diff(config: Config, docker: Docker) -> int:
         log_success("Config files are in sync")
         return 0
 
+    # Build output
+    lines: list[str] = []
+
     if content_diffs:
-        print(f"\n{Colors.YELLOW}=== Content differences ==={Colors.NC}")
+        lines.append(f"\n{Colors.YELLOW}=== Content differences ==={Colors.NC}")
         for path, diff in content_diffs:
-            print(f"\n{Colors.BLUE}{path}:{Colors.NC}")
-            print(diff)
+            lines.append(f"\n{Colors.BLUE}{path}:{Colors.NC}")
+            lines.append(diff)
 
     if only_in_container:
-        print(f"\n{Colors.YELLOW}=== Files only in container ==={Colors.NC}")
+        lines.append(f"\n{Colors.YELLOW}=== Files only in container ==={Colors.NC}")
         for path in only_in_container:
-            print(f"  {path}")
+            lines.append(f"  {path}")
 
     if only_locally:
-        print(f"\n{Colors.YELLOW}=== Files only locally ==={Colors.NC}")
+        lines.append(f"\n{Colors.YELLOW}=== Files only locally ==={Colors.NC}")
         for path in only_locally:
-            print(f"  {path}")
+            lines.append(f"  {path}")
+
+    output = "\n".join(lines)
+
+    # Pipe through pager
+    pager = os.environ.get("PAGER", "less -R")
+    try:
+        proc = subprocess.Popen(pager, shell=True, stdin=subprocess.PIPE)
+        proc.communicate(input=output.encode())
+    except (BrokenPipeError, KeyboardInterrupt):
+        pass
 
     return 0
 
