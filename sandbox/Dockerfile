@@ -54,7 +54,7 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Install Playwright with Chromium and configure MCP
 RUN npx playwright install --with-deps chromium && \
-    claude mcp add --scope user playwright -- npx @playwright/mcp@latest --headless --no-sandbox
+    claude mcp add --scope user playwright -- npx @playwright/mcp@latest --headless --no-sandbox --isolated --browser chromium
 
 # Install Fisher and plugins
 RUN fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher"
