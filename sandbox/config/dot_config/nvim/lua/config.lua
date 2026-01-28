@@ -110,14 +110,16 @@ vim.opt.rtp:append('/usr/share/doc/fzf/examples')
 
 -- <leader>ff Open fzf window to search files with preview
 vim.keymap.set('n', '<leader>ff', ':Files<CR>', { desc = "Fuzzy find files" })
-vim.api.nvim_create_user_command('Files',
-    function()
-        vim.fn['fzf#run']({
-            source = 'fd --type f',
-            sink = 'e',
-            options = '--preview "bat --color=always {}" --preview-window=right:60%',
-        })
-    end, {})
+vim.api.nvim_create_user_command('Files', function()
+    local preview_pos = vim.o.columns > 120 and "right:60%" or "bottom:50%"
+    vim.fn['fzf#run']({
+        source = 'fd --type f',
+        sink = 'e',
+        options = '--reverse --preview "bat --color=always {}" --preview-window=' .. preview_pos,
+        window = { width = 0.95, height = 0.9, border = 'rounded' },
+    })
+end, {})
+
 
 -- <leader>fg Grep and show quickfix list
 vim.keymap.set('n', '<leader>fg', ':Grep<CR>', { desc = "Grep and show quickfix list" })
