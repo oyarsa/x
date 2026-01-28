@@ -105,7 +105,26 @@ class Colors:
     GREEN = "\033[0;32m"
     YELLOW = "\033[1;33m"
     BLUE = "\033[0;34m"
+    CYAN = "\033[0;36m"
+    BOLD = "\033[1m"
     NC = "\033[0m"
+
+
+def colorize_diff(diff_str: str) -> str:
+    """Add ANSI colors to unified diff output."""
+    lines = []
+    for line in diff_str.splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            lines.append(f"{Colors.BOLD}{line}{Colors.NC}")
+        elif line.startswith("+"):
+            lines.append(f"{Colors.GREEN}{line}{Colors.NC}")
+        elif line.startswith("-"):
+            lines.append(f"{Colors.RED}{line}{Colors.NC}")
+        elif line.startswith("@@"):
+            lines.append(f"{Colors.CYAN}{line}{Colors.NC}")
+        else:
+            lines.append(line)
+    return "\n".join(lines)
 
 
 def log_info(msg: str) -> None:
@@ -963,7 +982,7 @@ def cmd_config_diff(config: Config, docker: Docker) -> int:
         lines.append(f"\n{Colors.YELLOW}=== Content differences ==={Colors.NC}")
         for path, diff in content_diffs:
             lines.append(f"\n{Colors.BLUE}{path}:{Colors.NC}")
-            lines.append(diff)
+            lines.append(colorize_diff(diff))
 
     if only_in_container:
         lines.append(f"\n{Colors.YELLOW}=== Files only in container ==={Colors.NC}")
