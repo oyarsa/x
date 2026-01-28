@@ -975,6 +975,79 @@ def cmd_config_diff(config: Config, docker: Docker) -> int:
     return 0
 
 
+def cmd_config_status(config: Config, docker: Docker) -> int:
+    if not docker.container_running():
+        log_error("Container is not running. Run 'sandbox up' first.")
+        return 1
+
+    config_dir = config.script_dir / "config"
+    if not config_dir.exists():
+        log_error(f"Config directory not found: {config_dir}")
+        return 1
+
+    # Build mapping of transformed paths to local files
+    local_files: dict[str, Path] = {}
+    for local_path, home_rel in iter_config_files(config_dir):
+        local_files[home_rel] = local_path
+
+    # Track directories we care about for finding extra files in container
+    tracked_dirs: set[str] = set()
+    for home_rel in local_files:
+        parent = str(Path(home_rel).parent)
+        if parent != ".":
+            tracked_dirs.add(parent)
+
+    # Get container files in tracked directories
+    container_files: set[str] = set()
+    for dir_path in tracked_dirs:
+        container_dir = f"/home/dev/{dir_path}"
+        for rel_file in docker.list_dir(container_dir):
+            full_rel = f"{dir_path}/{rel_file}"
+            if not should_ignore(rel_file):
+                container_files.add(full_rel)
+
+    # Compare
+    in_sync: list[str] = []
+    modified: list[str] = []
+    only_in_container: list[str] = []
+    only_locally: list[str] = []
+
+    for home_rel, local_path in sorted(local_files.items()):
+        container_path = f"/home/dev/{home_rel}"
+        local_content = local_path.read_text()
+        container_content = docker.read_file(container_path)
+
+        if container_content is None:
+            only_locally.append(f"~/{home_rel}")
+        elif local_content != container_content:
+            modified.append(f"~/{home_rel}")
+        else:
+            in_sync.append(f"~/{home_rel}")
+
+    for container_rel in sorted(container_files):
+        if container_rel not in local_files:
+            only_in_container.append(f"~/{container_rel}")
+
+    # Output
+    if in_sync:
+        for path in in_sync:
+            print(f"  {path}")
+
+    if modified:
+        for path in modified:
+            print(f"{Colors.YELLOW}M {path}{Colors.NC}")
+
+    if only_locally:
+        for path in only_locally:
+            print(f"{Colors.GREEN}L {path}{Colors.NC}")
+
+    if only_in_container:
+        for path in only_in_container:
+            print(f"{Colors.RED}C {path}{Colors.NC}")
+
+    return 0
+
+
 def cmd_config_push(config: Config, docker: Docker) -> int:
     if not docker.container_running():
         log_error("Container is not running. Run 'sandbox up' first.")
@@ -1044,7 +1117,8 @@ Commands:
   snapshot new <name>  Save container state as a snapshot
   snapshot ls          List all snapshots
   snapshot rm <name>   Delete a snapshot
-  config diff          Compare local config/ with container
+  config status        List config files with sync status
+  config diff          Show content differences for config files
   config push          Push local config files to container
 
 Run from a git repository directory. The sandbox will clone that repo.
@@ -1195,10 +1269,12 @@ Workspace lives inside container - use cp-out to save work.
                     return 1
         case "config":
             if not args.args:
-                log_error("config requires a subcommand: diff, push")
+                log_error("config requires a subcommand: status, diff, push")
                 return 1
             subcmd = args.args[0]
             match subcmd:
+                case "status" | "st":
+                    return cmd_config_status(config, docker)
                 case "diff":
                     return cmd_config_diff(config, docker)
                 case "push":
