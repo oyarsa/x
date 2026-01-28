@@ -1,14 +1,8 @@
 " Enable syntax highlighting
 syntax on
 filetype plugin indent on
-
-" Leader keys (must be set before any <leader> mappings)
 let mapleader = " "
 let maplocalleader = ","
-
-" Highlight jj commit messages with embedded diff
-autocmd BufRead,BufNewFile *.jjdescription set filetype=gitcommit
-autocmd FileType jj set filetype=gitcommit
 
 " Line numbers
 set number
@@ -32,7 +26,6 @@ set softtabstop=4
 set incsearch
 set ignorecase
 set smartcase
-set grepprg=rg\ --vimgrep\ --smart-case
 
 " UI and UX improvements
 set wildmenu
@@ -81,7 +74,7 @@ nnoremap M J
 xnoremap M J
 onoremap M J
 
-" Buffer and search
+" Clear search
 nnoremap <leader>c :nohlsearch<CR>
 
 " System clipboard
@@ -101,6 +94,8 @@ omap <C-c> gc
 function! TmuxMove(direction)
     let winnr_before = winnr()
     execute 'wincmd ' . a:direction
+    " If we press a movement key but don't change windows, it means
+    " we're at a border and could change to tmux
     if winnr() == winnr_before
         let tmux_dir = {'h': 'L', 'j': 'D', 'k': 'U', 'l': 'R'}[a:direction]
         silent call system('tmux select-pane -' . tmux_dir)
@@ -111,7 +106,6 @@ nnoremap <silent> <C-h> :call TmuxMove('h')<CR>
 nnoremap <silent> <C-j> :call TmuxMove('j')<CR>
 nnoremap <silent> <C-k> :call TmuxMove('k')<CR>
 nnoremap <silent> <C-l> :call TmuxMove('l')<CR>
-nnoremap <C-b> <C-w>p
 
 " Replace buffer with clipboard
 nnoremap <leader>RR ggVG"+p
@@ -123,33 +117,16 @@ nnoremap <leader>oh <C-w>s
 nnoremap <leader>ov <C-w>v
 nnoremap <leader>o= <C-w>=
 
+set termguicolors
 set background=dark
 colorscheme slate
+" Change highlight on open/close parens
+highlight MatchParen guibg=#444444 guifg=#f0c674 gui=underline,bold
 
-" Simple buffer bar at the top (no plugins)
-set showtabline=2
 nnoremap gn :bnext<CR>
 nnoremap gp :bprev<CR>
-set tabline=%!BufferLine()
 
-function! BufferLine()
-    let s = ''
-    for i in range(1, bufnr('$'))
-        if bufexists(i) && buflisted(i)
-            let name = fnamemodify(bufname(i), ':t')
-            if name == ''
-                let name = '[No Name]'
-            endif
-            if i == bufnr('%')
-                let s .= '%#TabLineSel# ' . i . ':' . name . ' '
-            else
-                let s .= '%#TabLine# ' . i . ':' . name . ' '
-            endif
-        endif
-    endfor
-    let s .= '%#TabLineFill#'
-    return s
-endfunction
+" Enable ripgrep smartcase for :grep
+set grepprg=rg\ --vimgrep\ --smart-case
 
-" Load lua config
-lua require('config')
+lua require("init")

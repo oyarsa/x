@@ -75,6 +75,8 @@ function fish_user_key_bindings
     bind alt-l __list_current_token
     bind alt-j __jj
     bind alt-g __gg
+    # Override fifc Tab binding
+    bind tab complete
 end
 
 if status is-interactive
@@ -96,7 +98,6 @@ if status is-interactive
         source ~/.fzf/shell/key-bindings.fish
     end
 
-    fish_add_path ~/.local/share/bob/nvim-bin
     fish_add_path ~/.local/bin
     fish_add_path ~/.npm-global/bin
     fish_add_path ~/.cargo/bin
@@ -109,5 +110,4 @@ if status is-interactive
     abbr j just
     abbr ... ../..
     abbr .... ../../..
-    alias yolo 'claude --dangerously-skip-permissions'
 end

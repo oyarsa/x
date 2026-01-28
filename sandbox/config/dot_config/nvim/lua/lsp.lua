@@ -17,21 +17,18 @@ local function setup_lsp_keymaps(bufnr)
 
     map("n", "<leader>lf", function()
         vim.lsp.buf.code_action({
+            ---@diagnostic disable-next-line: missing-fields
             context = { only = { "source.fixAll" } },
             apply = true,
         })
         vim.cmd.write()
     end, "Fix all code actions")
 
-    map("n", "<leader>ld", vim.diagnostic.open_float, "Open diagnostic float")
-    map("n", "<leader>lD", vim.diagnostic.setqflist, "Open diagnostics in quickfix list")
-    map("n", "[d", function()
-        vim.diagnostic.jump({ count = -1 })
-    end, "Go to previous diagnostic")
-    map("n", "]d", function()
-        vim.diagnostic.jump({ count = 1 })
-    end, "Go to next diagnostic")
+    -- [d and ]d to previous/next diagnostic are nvim defaults now
 end
+
+vim.keymap.set("n", "<leader>ld", vim.diagnostic.open_float, { desc = "Open diagnostic float" })
+vim.keymap.set("n", "<leader>lD", vim.diagnostic.setqflist, { desc = "Open diagnostics in quickfix list" })
 
 local function setup_auto_format(bufnr, client)
     if
@@ -54,8 +51,8 @@ end
 
 vim.api.nvim_create_autocmd("LspAttach", {
     callback = function(ev)
-        setup_lsp_keymaps(ev.buf)
         local client = assert(vim.lsp.get_client_by_id(ev.data.client_id))
+        setup_lsp_keymaps(ev.buf)
         setup_auto_format(ev.buf, client)
     end,
 })
@@ -63,10 +60,10 @@ vim.api.nvim_create_autocmd("LspAttach", {
 vim.diagnostic.config({
     signs = {
         text = {
-            [vim.diagnostic.severity.ERROR] = "E",
-            [vim.diagnostic.severity.WARN] = "W",
-            [vim.diagnostic.severity.HINT] = "H",
-            [vim.diagnostic.severity.INFO] = "I",
+            [vim.diagnostic.severity.ERROR] = " ",
+            [vim.diagnostic.severity.WARN] = " ",
+            [vim.diagnostic.severity.HINT] = " ",
+            [vim.diagnostic.severity.INFO] = " ",
         },
     },
 })
@@ -121,10 +118,40 @@ vim.lsp.config("eslint", {
     },
 })
 
+-- vim.lsp.config("lua_ls", {
+--     cmd = { 'lua-language-server' },
+--     filetypes = { 'lua' },
+--     root_markers = { '.luarc.json', '.luarc.jsonc', '.git' },
+-- })
+
 vim.lsp.enable({
     "rust_analyzer",
     "pyright",
     "ruff",
     "ts_ls",
+    -- "lua_ls",
     "eslint",
 })
+
+-- vim.api.nvim_exec_autocmds("FileType", { buffer = 0 })
+
+-- 1. Define the config in a variable
+local lua_opts = {
+    cmd = { 'lua-language-server' },
+    filetypes = { 'lua' },
+    root_markers = { '.luarc.json', '.luarc.jsonc', '.git' },
+}
+
+-- 2. Register it with the LSP system (for future buffers)
+vim.lsp.config("lua_ls", lua_opts)
+vim.lsp.enable("lua_ls")
+
+-- 3. Check the startup buffer (The Fix)
+-- If the current buffer is already a Lua file, start the client immediately.
+if vim.bo.filetype == 'lua' then
+    vim.lsp.start(lua_opts)
+end
+
+if vim.bo.filetype == 'lua' then
+    vim.lsp.start({ name = "lua_ls" })
+end
