@@ -53,13 +53,57 @@ local function setup_auto_format(bufnr, client)
     end
 end
 
+local function setup_completion(bufnr, client)
+    if client:supports_method('textDocument/completion') then
+        vim.lsp.completion.enable(true, client.id, bufnr, { autotrigger = true })
+    end
+end
+
 vim.api.nvim_create_autocmd("LspAttach", {
     callback = function(ev)
         local client = assert(vim.lsp.get_client_by_id(ev.data.client_id))
         setup_lsp_keymaps(ev.buf)
         setup_auto_format(ev.buf, client)
+        setup_completion(ev.buf, client)
     end,
 })
+
+--------------------------------------------------------------------------------
+-- Completion: C-n triggers omni completion, noselect by default
+--------------------------------------------------------------------------------
+vim.opt.completeopt = { "menu", "menuone", "noselect", "popup" }
+
+vim.keymap.set("i", "<C-n>", function()
+    if vim.fn.pumvisible() == 1 then
+        return "<C-n>"
+    elseif vim.bo.omnifunc ~= "" then
+        return "<C-x><C-o>"
+    else
+        return "<C-x><C-n>"
+    end
+end, { expr = true })
+
+vim.keymap.set("i", "<CR>", function()
+    if vim.fn.pumvisible() == 1 then
+        local info = vim.fn.complete_info({ "selected" })
+        if info.selected >= 0 then
+            return "<C-y>"
+        end
+    end
+    return "<CR>"
+end, { expr = true })
+
+vim.keymap.set("i", "<Tab>", function()
+    if vim.fn.pumvisible() == 1 then
+        local info = vim.fn.complete_info({ "selected" })
+        if info.selected >= 0 then
+            return "<C-y>"
+        else
+            return "<C-n><C-y>"
+        end
+    end
+    return "<Tab>"
+end, { expr = true })
 
 vim.diagnostic.config({
     signs = {

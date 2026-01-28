@@ -2,21 +2,6 @@
 vim.api.nvim_create_user_command("W", "w", {})
 
 --------------------------------------------------------------------------------
--- Completion: C-n triggers omni completion, noselect by default
---------------------------------------------------------------------------------
-vim.opt.completeopt = { "menu", "menuone", "noselect" }
-
-vim.keymap.set("i", "<C-n>", function()
-    if vim.fn.pumvisible() == 1 then
-        return "<C-n>"
-    elseif vim.bo.omnifunc ~= "" then
-        return "<C-x><C-o>"
-    else
-        return "<C-x><C-n>"
-    end
-end, { expr = true })
-
---------------------------------------------------------------------------------
 -- vim-unimpaired: quickfix navigation
 --------------------------------------------------------------------------------
 vim.keymap.set("n", "[q", "<Cmd>cprev<CR>", { desc = "Previous quickfix" })
