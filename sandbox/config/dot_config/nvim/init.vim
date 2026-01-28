@@ -16,6 +16,8 @@ set ruler
 set showcmd
 set showmatch
 set hidden
+set cursorline
+set cursorcolumn
 
 " Indentation
 set autoindent
