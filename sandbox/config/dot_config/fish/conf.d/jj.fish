@@ -161,3 +161,7 @@ function jup --wraps='jj rebase' --description 'alias jup jj rebase -b [branch] 
             return 1
     end
 end
+
+function jsqe --wraps='jj squash --editor' --description 'alias jsqe jj squash --editor'
+  jj squash --editor $argv
+end
