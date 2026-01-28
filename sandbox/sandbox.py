@@ -17,9 +17,13 @@ from pathlib import Path
 class Config:
     image_name: str = "claude-sandbox"
     container_prefix: str = "claude-sandbox"
+    snapshot_prefix: str = "claude-sandbox-snapshot"
 
     def container_name(self, name: str) -> str:
         return f"{self.container_prefix}-{name}"
+
+    def snapshot_name(self, name: str) -> str:
+        return f"{self.snapshot_prefix}:{name}"
 
     @property
     def script_dir(self) -> Path:
@@ -217,11 +221,23 @@ class Docker:
         return result.stdout.strip().split("\n")
 
     def start_container(
-        self, *, repo_name: str, repo_url: str, ports: list[str] | None = None
+        self,
+        *,
+        repo_name: str,
+        repo_url: str,
+        ports: list[str] | None = None,
+        snapshot: str | None = None,
     ) -> None:
         # Create out directory for this repo
         out_dir = self.config.out_dir / repo_name
         out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Use snapshot image if provided, otherwise base image
+        image = (
+            self.config.snapshot_name(snapshot)
+            if snapshot
+            else self.config.image_name
+        )
 
         cmd = [
             "docker",
@@ -247,7 +263,7 @@ class Docker:
         for port in ports or []:
             cmd.extend(["-p", port])
 
-        cmd.extend(["-it", self.config.image_name, "sleep", "infinity"])
+        cmd.extend(["-it", image, "sleep", "infinity"])
         run(cmd)
 
     def exec(
@@ -289,6 +305,44 @@ class Docker:
 
     def copy_from(self, src: str, dst: Path) -> None:
         run(["docker", "cp", f"{self.container_name}:{src}", str(dst)])
+
+    def snapshot(self, snapshot_name: str) -> None:
+        """Create a snapshot of the current container."""
+        image_name = self.config.snapshot_name(snapshot_name)
+        run(["docker", "commit", self.container_name, image_name])
+
+    def list_snapshots(self) -> list[tuple[str, str, str]]:
+        """List all snapshots. Returns list of (name, created, size) tuples."""
+        result = run(
+            [
+                "docker",
+                "images",
+                "--filter",
+                f"reference={self.config.snapshot_prefix}:*",
+                "--format",
+                "{{.Tag}}\t{{.CreatedSince}}\t{{.Size}}",
+            ],
+            capture=True,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        snapshots = []
+        for line in result.stdout.strip().split("\n"):
+            parts = line.split("\t")
+            if len(parts) == 3:
+                snapshots.append((parts[0], parts[1], parts[2]))
+        return snapshots
+
+    def snapshot_exists(self, snapshot_name: str) -> bool:
+        """Check if a snapshot exists."""
+        image_name = self.config.snapshot_name(snapshot_name)
+        return run_quiet(["docker", "image", "inspect", image_name])
+
+    def delete_snapshot(self, snapshot_name: str) -> None:
+        """Delete a snapshot."""
+        image_name = self.config.snapshot_name(snapshot_name)
+        run(["docker", "rmi", image_name], capture=True)
 
 
 # -- Git operations -----------------------------------------------------------
@@ -370,6 +424,7 @@ class UpOptions:
     check: str | None = None
     files: list[str] = field(default_factory=list)
     ports: list[str] = field(default_factory=list)
+    snapshot: str | None = None
 
 
 def cmd_up(config: Config, docker: Docker, opts: UpOptions | None = None) -> int:
@@ -400,8 +455,16 @@ def cmd_up(config: Config, docker: Docker, opts: UpOptions | None = None) -> int
     log_info(f"Name: {repo_name}")
     if ports:
         log_info(f"Ports: {', '.join(ports)}")
+    if opts.snapshot:
+        log_info(f"Snapshot: {opts.snapshot}")
 
-    docker.build()
+    # When using a snapshot, verify it exists; otherwise build base image
+    if opts.snapshot:
+        if not docker.snapshot_exists(opts.snapshot):
+            log_error(f"Snapshot '{opts.snapshot}' not found")
+            return 1
+    else:
+        docker.build()
 
     # Create directories
     config.transfer_dir.mkdir(exist_ok=True)
@@ -412,7 +475,9 @@ def cmd_up(config: Config, docker: Docker, opts: UpOptions | None = None) -> int
         docker.rm_container()
 
     log_info("Starting container...")
-    docker.start_container(repo_name=repo_name, repo_url=repo_url, ports=ports)
+    docker.start_container(
+        repo_name=repo_name, repo_url=repo_url, ports=ports, snapshot=opts.snapshot
+    )
     log_success("Container started")
 
     container_workspace = f"/workspace/{repo_name}"
@@ -420,27 +485,31 @@ def cmd_up(config: Config, docker: Docker, opts: UpOptions | None = None) -> int
     # Create workspace directory inside container
     docker.exec(["mkdir", "-p", container_workspace], check=True)
 
-    # Clone if workspace is empty
-    result = docker.exec(["ls", "-A", container_workspace], capture=True)
-    workspace_empty = result.returncode == 0 and not result.stdout.strip()
-
-    if workspace_empty:
-        log_info("Cloning repository...")
-        clone_url = repo_url.replace("https://", "https://oyarsa@")
-        docker.exec(
-            ["git", "clone", "-b", sandbox_config.branch, clone_url, "."],
-            workdir=container_workspace,
-            check=True,
-        )
-        # Set up jj colocated with git
-        docker.exec(
-            ["jj", "git", "init", "--colocate", "."],
-            workdir=container_workspace,
-            check=True,
-        )
-        log_success(f"Repository cloned to {container_workspace}")
+    # Skip clone when using a snapshot (workspace is already in the image)
+    if opts.snapshot:
+        log_info("Using snapshot, skipping clone")
     else:
-        log_info("Workspace already has content, skipping clone")
+        # Clone if workspace is empty
+        result = docker.exec(["ls", "-A", container_workspace], capture=True)
+        workspace_empty = result.returncode == 0 and not result.stdout.strip()
+
+        if workspace_empty:
+            log_info("Cloning repository...")
+            clone_url = repo_url.replace("https://", "https://oyarsa@")
+            docker.exec(
+                ["git", "clone", "-b", sandbox_config.branch, clone_url, "."],
+                workdir=container_workspace,
+                check=True,
+            )
+            # Set up jj colocated with git
+            docker.exec(
+                ["jj", "git", "init", "--colocate", "."],
+                workdir=container_workspace,
+                check=True,
+            )
+            log_success(f"Repository cloned to {container_workspace}")
+        else:
+            log_info("Workspace already has content, skipping clone")
 
     # Copy files into workspace
     for file_path in files:
@@ -704,6 +773,52 @@ def cmd_destroy(config: Config, docker: Docker, yes: bool = False) -> int:
     return 0
 
 
+def cmd_snapshot(config: Config, docker: Docker, snapshot_name: str) -> int:
+    if not docker.container_exists():
+        log_error("Container doesn't exist. Run 'sandbox up' first.")
+        return 1
+
+    if docker.snapshot_exists(snapshot_name):
+        log_error(f"Snapshot '{snapshot_name}' already exists")
+        return 1
+
+    log_info(f"Creating snapshot '{snapshot_name}'...")
+    docker.snapshot(snapshot_name)
+    log_success(f"Snapshot '{snapshot_name}' created")
+    log_info(f"Use 'sandbox up --snapshot {snapshot_name}' to restore")
+    return 0
+
+
+def cmd_snapshot_list(config: Config, docker: Docker) -> int:
+    snapshots = docker.list_snapshots()
+    if not snapshots:
+        log_info("No snapshots found")
+        return 0
+
+    print("Snapshots:")
+    for name, created, size in snapshots:
+        print(f"  {name}: {created} ({size})")
+    return 0
+
+
+def cmd_snapshot_delete(
+    config: Config, docker: Docker, snapshot_name: str, yes: bool = False
+) -> int:
+    if not docker.snapshot_exists(snapshot_name):
+        log_error(f"Snapshot '{snapshot_name}' not found")
+        return 1
+
+    if not yes:
+        response = input(f"Delete snapshot '{snapshot_name}'? [y/N] ")
+        if response.lower() != "y":
+            return 1
+
+    log_info(f"Deleting snapshot '{snapshot_name}'...")
+    docker.delete_snapshot(snapshot_name)
+    log_success(f"Snapshot '{snapshot_name}' deleted")
+    return 0
+
+
 def cmd_init() -> int:
     config_file = Path.cwd() / ".mysandbox.toml"
     if config_file.exists():
@@ -742,6 +857,7 @@ Options:
   --setup         Setup command after cloning (for up)
   --check         Check command after setup (for up)
   -f, --file      File to copy into workspace (repeatable, for up)
+  --snapshot      Create container from snapshot (for up)
 
 Commands:
   init            Create .mysandbox.toml config file
@@ -758,6 +874,9 @@ Commands:
   list            List all sandboxes
   rebuild         Force rebuild the image
   destroy         Remove container and workspace
+  snapshot new <name>  Save container state as a snapshot
+  snapshot ls          List all snapshots
+  snapshot rm <name>   Delete a snapshot
 
 Run from a git repository directory. The sandbox will clone that repo.
 Workspace lives inside container - use cp-out to save work.
@@ -807,6 +926,10 @@ Workspace lives inside container - use cp-out to save work.
         default=[],
         help="File to copy into workspace, can be repeated (overrides config)",
     )
+    parser.add_argument(
+        "--snapshot",
+        help="Create container from snapshot instead of base image (for up)",
+    )
 
     args = parser.parse_args()
 
@@ -822,14 +945,13 @@ Workspace lives inside container - use cp-out to save work.
     ):
         name = args.args[0]
         args.args = args.args[1:]
-    if not name and args.command not in (
-        "list",
-        "rebuild",
-        "init",
-        "help",
-        "-h",
-        "--help",
-    ):
+    # Commands that don't require a workspace name
+    no_name_commands = {"list", "rebuild", "init", "help", "-h", "--help"}
+    # snapshot ls/rm don't need workspace, but snapshot new does
+    if args.command == "snapshot" and args.args and args.args[0] in ("ls", "list", "rm", "delete"):
+        no_name_commands.add("snapshot")
+
+    if not name and args.command not in no_name_commands:
         # Try to get from git repo
         if Git.is_repo():
             remote_url = Git.get_remote_url()
@@ -845,6 +967,7 @@ Workspace lives inside container - use cp-out to save work.
                 check=args.check,
                 files=args.files,
                 ports=args.ports,
+                snapshot=args.snapshot,
             )
             return cmd_up(config, docker, up_opts)
         case "shell" | "s":
@@ -879,6 +1002,28 @@ Workspace lives inside container - use cp-out to save work.
             return cmd_destroy(config, docker, args.yes)
         case "init":
             return cmd_init()
+        case "snapshot":
+            if not args.args:
+                log_error("snapshot requires a subcommand: new, ls, rm")
+                return 1
+            subcmd = args.args[0]
+            subargs = args.args[1:]
+            match subcmd:
+                case "new":
+                    if not subargs:
+                        log_error("snapshot new requires a name")
+                        return 1
+                    return cmd_snapshot(config, docker, subargs[0])
+                case "ls" | "list":
+                    return cmd_snapshot_list(config, docker)
+                case "rm" | "delete":
+                    if not subargs:
+                        log_error("snapshot rm requires a name")
+                        return 1
+                    return cmd_snapshot_delete(config, docker, subargs[0], args.yes)
+                case _:
+                    log_error(f"Unknown snapshot subcommand: {subcmd}")
+                    return 1
         case "help" | "-h" | "--help":
             parser.print_help()
             return 0
