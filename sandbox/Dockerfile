@@ -49,13 +49,14 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 RUN npx playwright install --with-deps chromium && \
     claude mcp add --scope user playwright -- npx @playwright/mcp@latest --headless --no-sandbox
 
-# Copy configuration files
-COPY --chown=dev:dev config/tmux.conf /home/dev/.tmux.conf
-COPY --chown=dev:dev config/nvim /home/dev/.config/nvim
-RUN mkdir -p ~/.config/fish/conf.d ~/.config/fish/functions
-COPY --chown=dev:dev config/fish/config.fish /home/dev/.config/fish/config.fish
-COPY --chown=dev:dev config/fish/conf.d/ /home/dev/.config/fish/conf.d/
-COPY --chown=dev:dev config/fish/functions/ /home/dev/.config/fish/functions/
+# Copy configuration files (dot_ prefix becomes . in destination)
+COPY --chown=dev:dev config/ /tmp/config/
+RUN for src in $(find /tmp/config -type f ! -name 'mise.toml'); do \
+      rel="${src#/tmp/config/}"; \
+      dst="$HOME/$(echo "$rel" | sed 's/dot_/./g')"; \
+      mkdir -p "$(dirname "$dst")"; \
+      cp "$src" "$dst"; \
+    done && rm -rf /tmp/config
 
 # Install Fisher and plugins
 RUN fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher"
@@ -66,9 +67,6 @@ RUN git config --global credential.helper store && \
     git config --global user.email "italo@maleldil.com" && \
     git config --global user.name "Italo Silva" && \
     git config --global init.defaultBranch master
-
-# jj configuration
-COPY --chown=dev:dev config/jjconfig.toml /home/dev/.jjconfig.toml
 
 # Create directories for transfer and workspace (need sudo for /workspace)
 RUN sudo mkdir -p /transfer /workspace && \

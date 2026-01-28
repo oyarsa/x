@@ -46,27 +46,14 @@ claude mcp add --scope user playwright -- npx @playwright/mcp@latest --headless 
 
 echo "==> Linking config files..."
 
-# tmux
-ln -sf "$CONFIG_DIR/tmux.conf" ~/.tmux.conf
-
-# neovim
-mkdir -p ~/.config/nvim/lua
-ln -sf "$CONFIG_DIR/nvim/init.vim" ~/.config/nvim/init.vim
-ln -sf "$CONFIG_DIR/nvim/lua/config.lua" ~/.config/nvim/lua/config.lua
-ln -sf "$CONFIG_DIR/nvim/lua/lsp.lua" ~/.config/nvim/lua/lsp.lua
-
-# fish
-mkdir -p ~/.config/fish/conf.d ~/.config/fish/functions
-ln -sf "$CONFIG_DIR/fish/config.fish" ~/.config/fish/config.fish
-for f in "$CONFIG_DIR/fish/conf.d/"*; do
-	ln -sf "$f" ~/.config/fish/conf.d/
+# Transform dot_ prefix to . and create symlinks
+for src in $(find "$CONFIG_DIR" -type f ! -name 'mise.toml'); do
+	rel="${src#$CONFIG_DIR/}"
+	# Transform dot_ prefix to . in path components
+	dst="$HOME/$(echo "$rel" | sed 's/dot_/./g')"
+	mkdir -p "$(dirname "$dst")"
+	ln -sf "$src" "$dst"
 done
-for f in "$CONFIG_DIR/fish/functions/"*; do
-	ln -sf "$f" ~/.config/fish/functions/
-done
-
-# jujutsu
-ln -sf "$CONFIG_DIR/jjconfig.toml" ~/.jjconfig.toml
 
 echo "==> Installing Fisher and plugins..."
 fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher"

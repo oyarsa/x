@@ -4,13 +4,44 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+# Blocklist patterns for plugin-generated files to ignore in config diff
+BLOCKLIST_PATTERNS = ["tide", "fifc", "fisher", "replay", "prompt", "br.fish"]
+
+
+def should_ignore(filename: str) -> bool:
+    """Check if a filename should be ignored based on blocklist patterns."""
+    return any(pattern in filename for pattern in BLOCKLIST_PATTERNS)
+
+
+def transform_dot_path(path: str) -> str:
+    """Transform dot_ prefixes to actual dots in path components."""
+    parts = Path(path).parts
+    return str(
+        Path(
+            *[p.replace("dot_", ".", 1) if p.startswith("dot_") else p for p in parts]
+        )
+    )
+
+
+def iter_config_files(config_dir: Path) -> Iterator[tuple[Path, str]]:
+    """Yield (local_path, home_relative_path) for each config file."""
+    for local_path in config_dir.rglob("*"):
+        if local_path.is_file():
+            rel = local_path.relative_to(config_dir)
+            container_rel = transform_dot_path(str(rel))
+            yield local_path, container_rel
 
 
 @dataclass
@@ -305,6 +336,24 @@ class Docker:
 
     def copy_from(self, src: str, dst: Path) -> None:
         run(["docker", "cp", f"{self.container_name}:{src}", str(dst)])
+
+    def copy_to(self, src: Path, dst: str) -> None:
+        run(["docker", "cp", str(src), f"{self.container_name}:{dst}"])
+
+    def read_file(self, path: str) -> str | None:
+        """Read file content from container. Returns None if file doesn't exist."""
+        result = self.exec(["cat", path], capture=True)
+        return result.stdout if result.returncode == 0 else None
+
+    def list_dir(self, path: str) -> list[str]:
+        """List files in a directory. Returns empty list if dir doesn't exist."""
+        result = self.exec(
+            ["find", path, "-type", "f", "-printf", "%P\\n"],
+            capture=True,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        return result.stdout.strip().split("\n")
 
     def snapshot(self, snapshot_name: str) -> None:
         """Create a snapshot of the current container."""
@@ -840,6 +889,124 @@ branch = "master"
     return 0
 
 
+def cmd_config_diff(config: Config, docker: Docker) -> int:
+    if not docker.container_running():
+        log_error("Container is not running. Run 'sandbox up' first.")
+        return 1
+
+    config_dir = config.script_dir / "config"
+    if not config_dir.exists():
+        log_error(f"Config directory not found: {config_dir}")
+        return 1
+
+    # Build mapping of transformed paths to local files
+    local_files: dict[str, Path] = {}
+    for local_path, home_rel in iter_config_files(config_dir):
+        local_files[home_rel] = local_path
+
+    # Track directories we care about for finding extra files in container
+    tracked_dirs: set[str] = set()
+    for home_rel in local_files:
+        parent = str(Path(home_rel).parent)
+        if parent != ".":
+            tracked_dirs.add(parent)
+
+    # Get container files in tracked directories
+    container_files: set[str] = set()
+    for dir_path in tracked_dirs:
+        container_dir = f"/home/dev/{dir_path}"
+        for rel_file in docker.list_dir(container_dir):
+            full_rel = f"{dir_path}/{rel_file}"
+            # Apply blocklist
+            if not should_ignore(rel_file):
+                container_files.add(full_rel)
+
+    # Compare
+    content_diffs: list[tuple[str, str]] = []
+    only_in_container: list[str] = []
+    only_locally: list[str] = []
+
+    # Check local files
+    for home_rel, local_path in sorted(local_files.items()):
+        container_path = f"/home/dev/{home_rel}"
+        local_content = local_path.read_text()
+        container_content = docker.read_file(container_path)
+
+        if container_content is None:
+            only_locally.append(str(local_path.relative_to(config.script_dir)))
+        elif local_content != container_content:
+            # Generate diff
+            diff = difflib.unified_diff(
+                local_content.splitlines(keepends=True),
+                container_content.splitlines(keepends=True),
+                fromfile=f"local:{local_path.relative_to(config.script_dir)}",
+                tofile=f"container:~/{home_rel}",
+            )
+            diff_str = "".join(diff)
+            if diff_str:
+                content_diffs.append((f"~/{home_rel}", diff_str))
+
+    # Check for files only in container
+    for container_rel in sorted(container_files):
+        if container_rel not in local_files:
+            only_in_container.append(f"~/{container_rel}")
+
+    # Output results
+    if not content_diffs and not only_in_container and not only_locally:
+        log_success("Config files are in sync")
+        return 0
+
+    if content_diffs:
+        print(f"\n{Colors.YELLOW}=== Content differences ==={Colors.NC}")
+        for path, diff in content_diffs:
+            print(f"\n{Colors.BLUE}{path}:{Colors.NC}")
+            print(diff)
+
+    if only_in_container:
+        print(f"\n{Colors.YELLOW}=== Files only in container ==={Colors.NC}")
+        for path in only_in_container:
+            print(f"  {path}")
+
+    if only_locally:
+        print(f"\n{Colors.YELLOW}=== Files only locally ==={Colors.NC}")
+        for path in only_locally:
+            print(f"  {path}")
+
+    return 0
+
+
+def cmd_config_push(config: Config, docker: Docker) -> int:
+    if not docker.container_running():
+        log_error("Container is not running. Run 'sandbox up' first.")
+        return 1
+
+    config_dir = config.script_dir / "config"
+    if not config_dir.exists():
+        log_error(f"Config directory not found: {config_dir}")
+        return 1
+
+    # Create all needed directories first
+    dirs_to_create: set[str] = set()
+    for _, home_rel in iter_config_files(config_dir):
+        parent = str(Path(home_rel).parent)
+        if parent != ".":
+            dirs_to_create.add(f"/home/dev/{parent}")
+
+    for dir_path in sorted(dirs_to_create):
+        docker.exec(["mkdir", "-p", dir_path])
+
+    # Copy files
+    count = 0
+    for local_path, home_rel in iter_config_files(config_dir):
+        container_path = f"/home/dev/{home_rel}"
+        docker.copy_to(local_path, container_path)
+        docker.exec(["chown", "dev:dev", container_path])
+        count += 1
+
+    log_success(f"Pushed {count} config files to container")
+    return 0
+
+
 # -- Main ---------------------------------------------------------------------
 
 
@@ -877,6 +1044,8 @@ Commands:
   snapshot new <name>  Save container state as a snapshot
   snapshot ls          List all snapshots
   snapshot rm <name>   Delete a snapshot
+  config diff          Compare local config/ with container
+  config push          Push local config files to container
 
 Run from a git repository directory. The sandbox will clone that repo.
 Workspace lives inside container - use cp-out to save work.
@@ -946,7 +1115,7 @@ Workspace lives inside container - use cp-out to save work.
         name = args.args[0]
         args.args = args.args[1:]
     # Commands that don't require a workspace name
-    no_name_commands = {"list", "rebuild", "init", "help", "-h", "--help"}
+    no_name_commands = {"list", "rebuild", "init", "config", "help", "-h", "--help"}
     # snapshot ls/rm don't need workspace, but snapshot new does
     if args.command == "snapshot" and args.args and args.args[0] in ("ls", "list", "rm", "delete"):
         no_name_commands.add("snapshot")
@@ -1023,6 +1192,19 @@ Workspace lives inside container - use cp-out to save work.
                     return cmd_snapshot_delete(config, docker, subargs[0], args.yes)
                 case _:
                     log_error(f"Unknown snapshot subcommand: {subcmd}")
+                    return 1
+        case "config":
+            if not args.args:
+                log_error("config requires a subcommand: diff, push")
+                return 1
+            subcmd = args.args[0]
+            match subcmd:
+                case "diff":
+                    return cmd_config_diff(config, docker)
+                case "push":
+                    return cmd_config_push(config, docker)
+                case _:
+                    log_error(f"Unknown config subcommand: {subcmd}")
                     return 1
         case "help" | "-h" | "--help":
             parser.print_help()
