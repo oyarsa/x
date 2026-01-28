@@ -6,7 +6,7 @@ local function is_library(fname)
 
     -- Cargo stores downloaded crates in these locations
     local cargo_home = os.getenv("CARGO_HOME") or user_home .. "/.cargo"
-    local registry = cargo_home .. "/registry/src"   -- crates.io dependencies
+    local registry = cargo_home .. "/registry/src"      -- crates.io dependencies
     local git_registry = cargo_home .. "/git/checkouts" -- git dependencies
 
     -- Rustup stores toolchain files (stdlib source) here
