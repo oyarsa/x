@@ -1007,7 +1007,6 @@ def cmd_config_status(config: Config, docker: Docker) -> int:
                 container_files.add(full_rel)
 
     # Compare
-    in_sync: list[str] = []
     modified: list[str] = []
     only_in_container: list[str] = []
     only_locally: list[str] = []
@@ -1021,29 +1020,24 @@ def cmd_config_status(config: Config, docker: Docker) -> int:
             only_locally.append(f"~/{home_rel}")
         elif local_content != container_content:
             modified.append(f"~/{home_rel}")
-        else:
-            in_sync.append(f"~/{home_rel}")
 
     for container_rel in sorted(container_files):
         if container_rel not in local_files:
             only_in_container.append(f"~/{container_rel}")
 
     # Output
-    if in_sync:
-        for path in in_sync:
-            print(f"  {path}")
+    if not modified and not only_locally and not only_in_container:
+        log_success("Config files are in sync")
+        return 0
 
-    if modified:
-        for path in modified:
-            print(f"{Colors.YELLOW}M {path}{Colors.NC}")
+    for path in modified:
+        print(f"{Colors.YELLOW}M {path}{Colors.NC}")
 
-    if only_locally:
-        for path in only_locally:
-            print(f"{Colors.GREEN}L {path}{Colors.NC}")
+    for path in only_locally:
+        print(f"{Colors.GREEN}L {path}{Colors.NC}")
 
-    if only_in_container:
-        for path in only_in_container:
-            print(f"{Colors.RED}C {path}{Colors.NC}")
+    for path in only_in_container:
+        print(f"{Colors.RED}C {path}{Colors.NC}")
 
     return 0
 
