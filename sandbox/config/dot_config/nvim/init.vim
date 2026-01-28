@@ -1,10 +1,11 @@
+let mapleader = " "
+let maplocalleader = ","
+
 lua require("init")
 
 " Enable syntax highlighting
 syntax on
 filetype plugin indent on
-let mapleader = " "
-let maplocalleader = ","
 
 " Line numbers
 set number
