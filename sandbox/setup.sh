@@ -6,10 +6,13 @@ export MISE_YES=1
 export GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_DIR="$SCRIPT_DIR/config"
 
 echo "==> Allowing fzf docs (vim plugin) despite any dpkg excludes..."
 echo 'path-include=/usr/share/doc/fzf/*' | sudo tee /etc/dpkg/dpkg.cfg.d/fzf > /dev/null
+
+echo "==> Adding Fish 4 PPA..."
+sudo apt-get update && sudo apt-get install -y software-properties-common
+sudo apt-add-repository -y ppa:fish-shell/release-4
 
 echo "==> Installing system packages..."
 sudo apt-get update && sudo apt-get install -y \
@@ -27,24 +30,31 @@ sudo apt-get update && sudo apt-get install -y \
 	psmisc \
 	htop \
 	cloc \
-	fzf
+	fzf \
+	trash-cli
 
 echo "==> Setting up PATH..."
 export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.cargo/bin:$PATH"
 
-echo "==> Linking config files..."
+echo "==> Configuring git..."
+git config --global credential.helper store
+git config --global user.email "italo@maleldil.com"
+git config --global user.name "Italo Silva"
+git config --global init.defaultBranch master
+if [ -n "$GITHUB_TOKEN" ]; then
+	echo "https://oyarsa:$GITHUB_TOKEN@github.com" > ~/.git-credentials
+fi
 
-# Transform dot_ prefix to . and create symlinks
-for src in $(find "$CONFIG_DIR" -type f); do
-	rel="${src#$CONFIG_DIR/}"
-	# Transform dot_ prefix to . in path components
-	dst="$HOME/$(echo "$rel" | sed 's/dot_/./g')"
-	mkdir -p "$(dirname "$dst")"
-	ln -sf "$src" "$dst"
-done
+echo "==> Installing chezmoi and applying dotfiles..."
+sh -c "$(curl -fsLS get.chezmoi.io)" -- -b ~/.local/bin
+~/.local/bin/chezmoi init --apply oyarsa
 
 echo "==> Installing mise..."
 curl https://mise.run | sh
+
+echo "==> Copying mise configuration..."
+mkdir -p ~/.config/mise
+cp "$SCRIPT_DIR/mise.toml" ~/.config/mise/config.toml
 
 echo "==> Installing mise tools..."
 ~/.local/bin/mise install
@@ -68,12 +78,6 @@ for i in 1 2 3; do
 	echo "fifc install attempt $i failed, retrying..."
 	sleep 2
 done
-
-echo "==> Configuring git..."
-git config --global credential.helper store
-git config --global user.email "italo@maleldil.com"
-git config --global user.name "Italo Silva"
-git config --global init.defaultBranch master
 
 echo "==> Changing default shell to fish..."
 sudo chsh -s /usr/bin/fish "$USER"

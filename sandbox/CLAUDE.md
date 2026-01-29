@@ -6,8 +6,10 @@ Development environment setup for containerized or VM-based workspaces.
 
 - `Dockerfile`: Container-based setup (Ubuntu 25.10)
 - `setup.sh`: VM/bare-metal setup script (Ubuntu 24.04)
-- `config/`: Shared configuration files (fish, tmux, nvim, mise, jj)
+- `mise.toml`: Mise tool configuration (copied to `~/.config/mise/config.toml`)
 - `sandbox.py`: Python script for managing container workspaces
+
+Dotfiles are managed separately via chezmoi from `github.com/oyarsa/dotfiles`.
 
 ## Important
 
