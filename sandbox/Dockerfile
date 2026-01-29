@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     sudo \
     fish \
     build-essential \
+    python3-dev \
     kitty-terminfo \
     zstd \
     ca-certificates \
