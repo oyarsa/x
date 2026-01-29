@@ -32,6 +32,8 @@ The bootstrap script will:
 3. Apply the home-manager configuration (installs all packages)
 4. Set fish as the default shell
 
+Supports both **x86_64** and **aarch64** (ARM64) Linux systems.
+
 All tools are managed declaratively by Nix, including:
 - **Rust**: rustc, cargo, clippy, rustfmt from nixpkgs
 - **Playwright**: Browsers managed via `playwright-driver.browsers`

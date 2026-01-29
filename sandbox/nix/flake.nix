@@ -18,14 +18,11 @@
 
   outputs = { self, nixpkgs, home-manager, claude-code, ... }:
     let
-      system = "x86_64-linux";
-      pkgs = import nixpkgs {
-        inherit system;
-        config.allowUnfree = true;
-      };
+      # Supported systems
+      supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
 
-      # Claude Code package from the hourly-updated flake
-      claude-code-pkg = claude-code.packages.${system}.default;
+      # Helper to generate attrs for each system
+      forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
 
       # User configuration - customize these
       userConfig = {
@@ -81,52 +78,82 @@
         # Jujutsu configuration
         jjconfig = ./config/jjconfig.toml;
       };
+
+      # Generate home-manager configuration for a specific system
+      mkHomeConfig = system:
+        let
+          pkgs = import nixpkgs {
+            inherit system;
+            config.allowUnfree = true;
+          };
+          claude-code-pkg = claude-code.packages.${system}.default;
+        in
+        home-manager.lib.homeManagerConfiguration {
+          inherit pkgs;
+          extraSpecialArgs = {
+            inherit userConfig configFiles claude-code-pkg;
+          };
+          modules = [
+            ./home.nix
+            ./modules/packages.nix
+            ./modules/fish.nix
+            ./modules/neovim.nix
+            ./modules/tmux.nix
+            ./modules/git.nix
+            ./modules/starship.nix
+          ];
+        };
     in
     {
-      # Home Manager configuration for standalone use on Ubuntu
-      homeConfigurations.${userConfig.username} = home-manager.lib.homeManagerConfiguration {
-        inherit pkgs;
-        extraSpecialArgs = {
-          inherit userConfig configFiles claude-code-pkg;
-        };
-        modules = [
-          ./home.nix
-          ./modules/packages.nix
-          ./modules/fish.nix
-          ./modules/neovim.nix
-          ./modules/tmux.nix
-          ./modules/git.nix
-          ./modules/starship.nix
-        ];
+      # Home Manager configurations for each system
+      # Use: home-manager switch --flake .#dev@x86_64-linux
+      # Or just: home-manager switch --flake .#dev (auto-detects system)
+      homeConfigurations = {
+        # Default configuration (auto-detect system at runtime)
+        ${userConfig.username} = mkHomeConfig "x86_64-linux";
+
+        # System-specific configurations
+        "${userConfig.username}@x86_64-linux" = mkHomeConfig "x86_64-linux";
+        "${userConfig.username}@aarch64-linux" = mkHomeConfig "aarch64-linux";
       };
 
       # Development shell for working on this config
-      devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [
-          nil  # Nix LSP
-          nixfmt-rfc-style  # Nix formatter
-        ];
-      };
+      devShells = forAllSystems (system:
+        let pkgs = import nixpkgs { inherit system; };
+        in {
+          default = pkgs.mkShell {
+            packages = with pkgs; [
+              nil  # Nix LSP
+              nixfmt-rfc-style  # Nix formatter
+            ];
+          };
+        }
+      );
 
       # Packages available in this flake
-      packages.${system} = {
-        # Bootstrap script as a package
-        bootstrap = pkgs.writeShellScriptBin "nix-vm-bootstrap" (builtins.readFile ./bootstrap.sh);
-      };
+      packages = forAllSystems (system:
+        let pkgs = import nixpkgs { inherit system; };
+        in {
+          bootstrap = pkgs.writeShellScriptBin "nix-vm-bootstrap" (builtins.readFile ./bootstrap.sh);
+        }
+      );
 
       # Easy activation command
-      apps.${system} = {
-        default = {
-          type = "app";
-          program = "${self.packages.${system}.bootstrap}/bin/nix-vm-bootstrap";
-        };
+      apps = forAllSystems (system:
+        let pkgs = import nixpkgs { inherit system; };
+        in {
+          default = {
+            type = "app";
+            program = "${self.packages.${system}.bootstrap}/bin/nix-vm-bootstrap";
+          };
 
-        switch = {
-          type = "app";
-          program = toString (pkgs.writeShellScript "switch" ''
-            home-manager switch --flake ${self}#${userConfig.username}
-          '');
-        };
-      };
+          switch = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "switch" ''
+              home-manager switch --flake ${self}#${userConfig.username}
+            '');
+          };
+        }
+      );
     };
 }

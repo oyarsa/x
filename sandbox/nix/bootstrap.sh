@@ -101,15 +101,34 @@ get_script_dir() {
     echo "$(cd -P "$(dirname "$SOURCE")" && pwd)"
 }
 
+# Detect system architecture
+get_system() {
+    local arch
+    arch="$(uname -m)"
+    case "$arch" in
+        x86_64)
+            echo "x86_64-linux"
+            ;;
+        aarch64|arm64)
+            echo "aarch64-linux"
+            ;;
+        *)
+            log_error "Unsupported architecture: $arch"
+            exit 1
+            ;;
+    esac
+}
+
 # Apply home-manager configuration
 apply_config() {
     local SCRIPT_DIR
     SCRIPT_DIR="$(get_script_dir)"
 
-    log_info "Applying home-manager configuration from $SCRIPT_DIR..."
+    local SYSTEM
+    SYSTEM="$(get_system)"
 
-    # Get the username
-    local USERNAME="${USER:-$(whoami)}"
+    log_info "Applying home-manager configuration from $SCRIPT_DIR..."
+    log_info "Detected system: $SYSTEM"
 
     # Check if flake.nix exists
     if [[ ! -f "$SCRIPT_DIR/flake.nix" ]]; then
@@ -118,8 +137,8 @@ apply_config() {
     fi
 
     # Build and switch to the new configuration
-    # Use --impure to allow reading environment variables for customization
-    nix run home-manager/master -- switch --flake "$SCRIPT_DIR#dev" --impure
+    # Use system-specific configuration: dev@x86_64-linux or dev@aarch64-linux
+    nix run home-manager/master -- switch --flake "$SCRIPT_DIR#dev@$SYSTEM" --impure
 
     log_success "Configuration applied successfully"
 }
