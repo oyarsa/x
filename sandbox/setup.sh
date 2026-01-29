@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
+export DEBIAN_FRONTEND=noninteractive
+export MISE_YES=1
+export GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_DIR="$SCRIPT_DIR/config"
 
@@ -52,8 +56,16 @@ npx playwright install --with-deps chromium
 claude mcp add --scope user playwright -- npx @playwright/mcp@latest --headless --no-sandbox --isolated --browser chromium
 
 echo "==> Installing Fisher and plugins..."
-fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher"
-fish -c "fisher install gazorby/fifc"
+for i in 1 2 3; do
+	timeout 60 fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher" && break
+	echo "Fisher install attempt $i failed, retrying..."
+	sleep 2
+done
+for i in 1 2 3; do
+	timeout 60 fish -c "fisher install gazorby/fifc" && break
+	echo "fifc install attempt $i failed, retrying..."
+	sleep 2
+done
 
 echo "==> Configuring git..."
 git config --global credential.helper store
@@ -63,8 +75,5 @@ git config --global init.defaultBranch master
 
 echo "==> Changing default shell to fish..."
 sudo chsh -s /usr/bin/fish "$USER"
-
-echo "==> Fixing cache directory ownership..."
-sudo chown -R "$USER:$USER" ~/.cache
 
 echo "==> Done! Log out and back in (or run 'fish') to start using the new setup."
