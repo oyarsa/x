@@ -35,7 +35,7 @@ The bootstrap script will:
 All tools are managed declaratively by Nix, including:
 - **Rust**: rustc, cargo, clippy, rustfmt from nixpkgs
 - **Playwright**: Browsers managed via `playwright-driver.browsers`
-- **Claude Code**: Installed automatically via home-manager activation
+- **Claude Code**: `claude-code` package from nixpkgs
 
 ## Structure
 

@@ -49,14 +49,6 @@
     mkdir -p $HOME/workspace
   '';
 
-  # Install Claude Code CLI if not present
-  # This is a proprietary tool not available in nixpkgs
-  home.activation.installClaude = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    if ! command -v claude &> /dev/null; then
-      $DRY_RUN_CMD ${pkgs.bash}/bin/bash -c '${pkgs.curl}/bin/curl -fsSL https://claude.ai/install.sh | ${pkgs.bash}/bin/bash'
-    fi
-  '';
-
   # Nix configuration
   nix = {
     package = pkgs.nix;

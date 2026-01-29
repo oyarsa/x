@@ -124,10 +124,10 @@ apply_config() {
     log_success "Configuration applied successfully"
 }
 
-# Note: Rust, Playwright, and Claude Code are now managed by Nix/home-manager
+# Note: Rust, Playwright, and Claude Code are all managed by Nix
 # - Rust: rustc, cargo, clippy, rustfmt from nixpkgs
 # - Playwright: playwright-driver.browsers with PLAYWRIGHT_BROWSERS_PATH
-# - Claude Code: installed via home.activation.installClaude
+# - Claude Code: claude-code package from nixpkgs
 
 # Set fish as default shell
 set_default_shell() {

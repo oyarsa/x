@@ -58,6 +58,7 @@
     gh                  # GitHub CLI
     delta               # Git diff viewer
     pandoc              # Document converter
+    claude-code         # Claude Code CLI
 
     # ============================================================
     # CLI Utilities (from mise)
