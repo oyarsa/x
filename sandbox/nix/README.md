@@ -29,10 +29,13 @@ cd x/sandbox/nix
 The bootstrap script will:
 1. Install Nix using the Determinate Systems installer
 2. Enable flakes support
-3. Apply the home-manager configuration
-4. Set up Rust toolchain
-5. Install additional tools (Claude Code, Playwright)
-6. Set fish as the default shell
+3. Apply the home-manager configuration (installs all packages)
+4. Set fish as the default shell
+
+All tools are managed declaratively by Nix, including:
+- **Rust**: rustc, cargo, clippy, rustfmt from nixpkgs
+- **Playwright**: Browsers managed via `playwright-driver.browsers`
+- **Claude Code**: Installed automatically via home-manager activation
 
 ## Structure
 
@@ -174,7 +177,7 @@ This provides `nil` (Nix LSP) and `nixfmt-rfc-style` (formatter).
 **Languages & Runtimes:**
 - Node.js 22 (LTS)
 - Go
-- Rust (via rustup)
+- Rust (rustc, cargo, clippy, rustfmt)
 - Python (via uv)
 - Lua/LuaJIT
 
@@ -185,6 +188,8 @@ This provides `nil` (Nix LSP) and `nixfmt-rfc-style` (formatter).
 - Just (task runner)
 - GitHub CLI (gh)
 - Delta (git diff viewer)
+- Claude Code CLI
+- Playwright (with Chromium)
 
 **CLI Utilities:**
 - fzf (fuzzy finder)

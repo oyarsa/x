@@ -124,42 +124,10 @@ apply_config() {
     log_success "Configuration applied successfully"
 }
 
-# Install Rust toolchain via rustup (Nix provides rustup, but we need to init)
-setup_rust() {
-    log_info "Setting up Rust toolchain..."
-
-    if command -v rustup &> /dev/null; then
-        if rustup show | grep -q "stable"; then
-            log_info "Rust stable toolchain already installed"
-        else
-            rustup default stable
-            rustup component add clippy rustfmt
-        fi
-    fi
-
-    log_success "Rust toolchain configured"
-}
-
-# Install additional tools not in Nix (Claude Code, Playwright)
-install_extras() {
-    log_info "Installing additional tools..."
-
-    # Claude Code CLI (not in nixpkgs)
-    if ! command -v claude &> /dev/null; then
-        log_info "Installing Claude Code CLI..."
-        curl -fsSL https://claude.ai/install.sh | bash
-    else
-        log_info "Claude Code CLI already installed"
-    fi
-
-    # Playwright with Chromium
-    if command -v npx &> /dev/null; then
-        log_info "Installing Playwright..."
-        npx --yes playwright install --with-deps chromium || true
-    fi
-
-    log_success "Additional tools installed"
-}
+# Note: Rust, Playwright, and Claude Code are now managed by Nix/home-manager
+# - Rust: rustc, cargo, clippy, rustfmt from nixpkgs
+# - Playwright: playwright-driver.browsers with PLAYWRIGHT_BROWSERS_PATH
+# - Claude Code: installed via home.activation.installClaude
 
 # Set fish as default shell
 set_default_shell() {
@@ -224,8 +192,6 @@ main() {
     configure_nix
     install_home_manager
     apply_config
-    setup_rust
-    install_extras
     set_default_shell
     print_instructions
 }
@@ -247,12 +213,6 @@ case "${1:-}" in
     --apply)
         apply_config
         ;;
-    --setup-rust)
-        setup_rust
-        ;;
-    --extras)
-        install_extras
-        ;;
     --shell)
         set_default_shell
         ;;
@@ -266,8 +226,6 @@ case "${1:-}" in
         echo "  --configure-nix Configure Nix for flakes"
         echo "  --install-hm    Install home-manager"
         echo "  --apply         Apply home-manager configuration"
-        echo "  --setup-rust    Configure Rust toolchain"
-        echo "  --extras        Install Claude Code, Playwright"
         echo "  --shell         Set fish as default shell"
         echo "  --help, -h      Show this help"
         ;;

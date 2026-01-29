@@ -35,9 +35,12 @@
     # Go (latest)
     go
 
-    # Rust (stable with components)
-    rustup              # Manages rust toolchain
-    # Note: Run `rustup default stable` after first install
+    # Rust (stable toolchain from nixpkgs)
+    rustc
+    cargo
+    clippy
+    rustfmt
+    # rust-analyzer is in Language Servers section
 
     # Python via uv
     uv
@@ -89,9 +92,8 @@
     # ============================================================
     # Additional Tools
     # ============================================================
-    # Playwright dependencies (for MCP)
-    # Note: Playwright itself is installed via npx at runtime
-    chromium
+    # Playwright with browser dependencies
+    playwright-driver.browsers
 
     # Git (core)
     git
