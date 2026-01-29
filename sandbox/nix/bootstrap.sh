@@ -127,7 +127,7 @@ apply_config() {
 # Note: Rust, Playwright, and Claude Code are all managed by Nix
 # - Rust: rustc, cargo, clippy, rustfmt from nixpkgs
 # - Playwright: playwright-driver.browsers with PLAYWRIGHT_BROWSERS_PATH
-# - Claude Code: claude-code package from nixpkgs
+# - Claude Code: hourly-updated flake from github:sadjow/claude-code-nix
 
 # Set fish as default shell
 set_default_shell() {

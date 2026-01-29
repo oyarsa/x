@@ -1,4 +1,4 @@
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, claude-code-pkg, ... }:
 
 {
   home.packages = with pkgs; [
@@ -58,7 +58,9 @@
     gh                  # GitHub CLI
     delta               # Git diff viewer
     pandoc              # Document converter
-    claude-code         # Claude Code CLI
+  ] ++ [
+    claude-code-pkg     # Claude Code CLI (hourly updates from github:sadjow/claude-code-nix)
+  ] ++ (with pkgs; [
 
     # ============================================================
     # CLI Utilities (from mise)
@@ -105,7 +107,7 @@
     # Nix tools
     nil                 # Nix LSP
     nixfmt-rfc-style    # Nix formatter
-  ];
+  ]);
 
   # Programs that need special configuration beyond just installation
   programs = {

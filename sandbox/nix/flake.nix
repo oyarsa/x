@@ -8,15 +8,24 @@
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Claude Code with hourly updates (nixpkgs can lag behind)
+    claude-code = {
+      url = "github:sadjow/claude-code-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, home-manager, ... }:
+  outputs = { self, nixpkgs, home-manager, claude-code, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
         inherit system;
         config.allowUnfree = true;
       };
+
+      # Claude Code package from the hourly-updated flake
+      claude-code-pkg = claude-code.packages.${system}.default;
 
       # User configuration - customize these
       userConfig = {
@@ -78,7 +87,7 @@
       homeConfigurations.${userConfig.username} = home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         extraSpecialArgs = {
-          inherit userConfig configFiles;
+          inherit userConfig configFiles claude-code-pkg;
         };
         modules = [
           ./home.nix
