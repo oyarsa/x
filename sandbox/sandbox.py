@@ -454,41 +454,50 @@ class Git:
 # -- VCS helpers --------------------------------------------------------------
 
 
-def check_workspace_dirty(docker: Docker) -> tuple[bool, str]:
+def check_workspace_dirty(docker: Docker) -> tuple[bool, str, str]:
     """Check if the workspace has uncommitted changes (git or jj).
 
-    Returns (is_dirty, message) tuple.
+    Returns (is_dirty, workdir, message) tuple.
     """
     if not docker.container_running():
-        return False, ""
+        return False, "", ""
 
     workdir = docker.get_workdir()
     if workdir == "/root":
-        return False, ""
+        return False, "", ""
 
     messages = []
 
-    # Check git status
-    result = docker.exec(
-        ["git", "status", "--porcelain"],
+    # Check if this is a jj repo
+    jj_check = docker.exec(
+        ["jj", "root"],
         workdir=workdir,
         capture=True,
     )
-    if result.returncode == 0 and result.stdout.strip():
-        messages.append("Git has uncommitted changes")
+    is_jj_repo = jj_check.returncode == 0
 
-    # Check jj status (non-empty working copy)
-    result = docker.exec(
-        ["jj", "diff", "--stat"],
-        workdir=workdir,
-        capture=True,
-    )
-    if result.returncode == 0 and result.stdout.strip():
-        messages.append("Current jj change is non-empty")
+    if is_jj_repo:
+        # Check jj status (non-empty working copy)
+        result = docker.exec(
+            ["jj", "diff"],
+            workdir=workdir,
+            capture=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            messages.append("Current jj change is non-empty")
+    else:
+        # Check git status (only if not a jj repo, since jj colocates with git)
+        result = docker.exec(
+            ["git", "status", "--porcelain"],
+            workdir=workdir,
+            capture=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            messages.append("Git has uncommitted changes")
 
     if messages:
-        return True, "; ".join(messages)
-    return False, ""
+        return True, workdir, "; ".join(messages)
+    return False, "", ""
 
 
 # -- Commands -----------------------------------------------------------------
@@ -715,9 +724,9 @@ def cmd_cp_out(config: Config, docker: Docker, path: str | None) -> int:
 def cmd_down(config: Config, docker: Docker, yes: bool = False) -> int:
     if docker.container_exists():
         # Check for uncommitted changes
-        is_dirty, dirty_msg = check_workspace_dirty(docker)
+        is_dirty, workdir, dirty_msg = check_workspace_dirty(docker)
         if is_dirty and not yes:
-            log_warn(f"Workspace has uncommitted changes: {dirty_msg}")
+            log_warn(f"Workspace '{workdir}' has uncommitted changes: {dirty_msg}")
             response = input("Continue anyway? [y/N] ")
             if response.lower() != "y":
                 return 1
@@ -830,9 +839,9 @@ def cmd_destroy(config: Config, docker: Docker, yes: bool = False) -> int:
         return 0
 
     # Check for uncommitted changes
-    is_dirty, dirty_msg = check_workspace_dirty(docker)
+    is_dirty, workdir, dirty_msg = check_workspace_dirty(docker)
     if is_dirty:
-        log_warn(f"Workspace has uncommitted changes: {dirty_msg}")
+        log_warn(f"Workspace '{workdir}' has uncommitted changes: {dirty_msg}")
 
     if not yes:
         response = input(
