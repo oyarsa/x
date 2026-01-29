@@ -70,6 +70,8 @@ function __gg
     commandline -f repaint
 end
 
+# Activate mise shims for all shells (before interactive block so tools are available)
+source_if_exists mise activate fish --shims
 
 if status is-interactive
     if type -q tmux
@@ -78,9 +80,9 @@ if status is-interactive
         end
     end
 
+    source_if_exists mise activate fish 
     source_if_exists starship init fish
     source_if_exists zoxide init fish --cmd k
-    source_if_exists mise activate fish
     source_if_exists uv generate-shell-completion fish
     source_if_exists jj util completion fish
     source_if_exists just --completions fish
