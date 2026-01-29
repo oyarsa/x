@@ -38,21 +38,36 @@ The bootstrap script will:
 
 ```
 nix/
-├── flake.nix           # Main entry point, defines inputs and outputs
+├── flake.nix           # Main entry point, user config, file path mappings
 ├── flake.lock          # Locked dependency versions
 ├── home.nix            # Core home-manager configuration
 ├── bootstrap.sh        # One-command installation script
 ├── README.md           # This file
-├── config/
-│   └── nvim/           # Neovim Lua config files (for complex configs)
-└── modules/
+├── config/             # Actual config files (edit these for customization)
+│   ├── nvim/
+│   │   ├── init.vim    # Main neovim config
+│   │   ├── .luarc.json # Lua language server config
+│   │   ├── lua/        # Lua modules (config, lsp, git, symbols)
+│   │   └── lsp/        # LSP server configurations
+│   ├── fish/
+│   │   ├── config.fish # Main fish config
+│   │   ├── conf.d/     # Additional config (env_vars, jj aliases)
+│   │   └── functions/  # Fish functions
+│   ├── tmux/
+│   │   └── tmux.conf   # Tmux configuration
+│   └── jjconfig.toml   # Jujutsu configuration
+└── modules/            # Nix modules (define what gets installed where)
     ├── packages.nix    # All installed packages
-    ├── fish.nix        # Fish shell configuration
-    ├── neovim.nix      # Neovim configuration
-    ├── tmux.nix        # Tmux configuration
-    ├── git.nix         # Git and Jujutsu configuration
-    └── starship.nix    # Prompt configuration
+    ├── fish.nix        # Fish shell module
+    ├── neovim.nix      # Neovim module
+    ├── tmux.nix        # Tmux module
+    ├── git.nix         # Git and Jujutsu module
+    └── starship.nix    # Prompt module
 ```
+
+**Key design**: Configuration files live in `config/` as regular files with
+full editor support (syntax highlighting, LSP, etc.). The Nix modules in
+`modules/` just wire these files to the right locations.
 
 ## Customization
 
@@ -82,29 +97,45 @@ home.packages = with pkgs; [
 
 ### Modifying Shell Configuration
 
-Edit `modules/fish.nix` to:
-- Add shell aliases in `shellAliases`
-- Add shell abbreviations in `shellAbbrs`
-- Add functions in `functions`
-- Modify shell initialization in `interactiveShellInit`
+Edit the files in `config/fish/`:
+- `config.fish` - Main fish configuration
+- `conf.d/env_vars.fish` - Environment variables
+- `conf.d/jj.fish` - Jujutsu aliases
+- `functions/*.fish` - Custom fish functions
+
+Shell abbreviations and aliases that need Nix paths are in `modules/fish.nix`.
 
 ### Modifying Editor Configuration
 
-Edit `modules/neovim.nix` to change Neovim settings. The configuration is
-split into:
-- `init.vim` - VimScript settings
-- `lua/*.lua` - Lua modules for advanced features
+Edit the files in `config/nvim/`:
+- `init.vim` - VimScript settings (keybindings, options)
+- `lua/config.lua` - Lua config (FZF, completion, etc.)
+- `lua/lsp.lua` - LSP client setup
+- `lua/git.lua` - Git integration
+- `lua/symbols.lua` - Symbol picker
+- `lsp/*.lua` - Per-language LSP configurations
+
+### Modifying Tmux Configuration
+
+Edit `config/tmux/tmux.conf` directly. The shell path is set by Nix.
+
+### Modifying Jujutsu Configuration
+
+Edit `config/jjconfig.toml` directly.
 
 ## Common Commands
 
 ### Apply Configuration Changes
 
-After modifying any `.nix` files:
+After modifying any files (config or `.nix`):
 
 ```bash
 cd ~/x/sandbox/nix
 home-manager switch --flake .#dev
 ```
+
+Note: Changes to config files in `config/` require running this command
+to copy them to the right locations.
 
 ### Update All Packages
 
