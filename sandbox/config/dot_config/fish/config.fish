@@ -93,8 +93,10 @@ if status is-interactive
     source_if_exists jj util completion fish
     source_if_exists just --completions fish
 
-    # Source fzf keybindings
-    if test -f ~/.fzf/shell/key-bindings.fish
+    # Source fzf keybindings (apt location first, then manual install)
+    if test -f /usr/share/doc/fzf/examples/key-bindings.fish
+        source /usr/share/doc/fzf/examples/key-bindings.fish
+    else if test -f ~/.fzf/shell/key-bindings.fish
         source ~/.fzf/shell/key-bindings.fish
     end
 
