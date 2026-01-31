@@ -6,11 +6,12 @@
 #   snapshot <server>  - Create a snapshot of a server
 #   restore <snapshot> - Restore a server from a snapshot
 #   destroy <server>   - Destroy a server (optionally snapshot first)
+#   clean <snapshot>   - Delete a snapshot
 #   list               - List all snapshots with metadata
 
 set -g script_name (basename (status filename))
-set -g script_version "0.1.0"
-set -g script_date "2025-01-31"
+set -g script_version "0.2.0"
+set -g script_date 2025-01-31
 
 function die
     gum style --foreground 196 --bold "✗ $argv"
@@ -240,6 +241,25 @@ function cmd_list
     end
 end
 
+function cmd_clean
+    set -l snapshot (select_snapshot $argv[1])
+    or return 1
+    test -z "$snapshot"; and return 1
+
+    set -l snapshot_id (hcloud image list --type snapshot -o json | jq -r ".[] | select(.description == \"$snapshot\") | .id")
+
+    if not gum confirm "Delete snapshot '$snapshot'? This cannot be undone."
+        info "Aborted."
+        return 0
+    end
+
+    info "Deleting snapshot '$snapshot'..."
+    hcloud image delete "$snapshot_id"
+    or die "Failed to delete snapshot"
+
+    success "Snapshot '$snapshot' deleted"
+end
+
 function show_help
     echo "Hetzner Cloud snapshot workflow manager."
     echo
@@ -249,6 +269,7 @@ function show_help
     echo "  snapshot [server]  - Create a snapshot of a server"
     echo "  restore [snapshot] - Restore a server from a snapshot"
     echo "  destroy [server]   - Destroy a server"
+    echo "  clean [snapshot]   - Delete a snapshot"
     echo "  list               - List all snapshots"
     echo
     echo "Options:"
@@ -300,6 +321,15 @@ function show_help_list
     echo "Usage: $script_name list"
 end
 
+function show_help_clean
+    echo "Delete a snapshot."
+    echo
+    echo "Usage: $script_name clean [snapshot]"
+    echo
+    echo "Arguments:"
+    echo "  snapshot  - Snapshot name (interactive if omitted)"
+end
+
 function main
     # Check dependencies
     if not command -q gum
@@ -344,6 +374,8 @@ function main
                 show_help_restore
             case destroy
                 show_help_destroy
+            case clean
+                show_help_clean
             case list
                 show_help_list
             case '*'
@@ -359,6 +391,8 @@ function main
             cmd_restore $argv
         case destroy
             cmd_destroy $argv
+        case clean
+            cmd_clean $argv
         case list
             cmd_list $argv
         case '*'
