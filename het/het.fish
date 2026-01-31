@@ -9,6 +9,8 @@
 #   list               - List all snapshots with metadata
 
 set -g script_name (basename (status filename))
+set -g script_version "0.1.0"
+set -g script_date "2025-01-31"
 
 function die
     gum style --foreground 196 --bold "✗ $argv"
@@ -251,6 +253,7 @@ function show_help
     echo
     echo "Options:"
     echo "  -h, --help         - Show this help message"
+    echo "  -V, --version      - Show version"
     echo
     echo "Run '$script_name <command> --help' for command-specific help."
 end
@@ -317,7 +320,12 @@ function main
         exit 1
     end
 
-    argparse -i h/help -- $argv
+    argparse -i h/help V/version -- $argv
+
+    if set -q _flag_version
+        echo "$script_name $script_version ($script_date)"
+        exit 0
+    end
 
     if set -q _flag_help; or test (count $argv) -eq 0
         show_help
