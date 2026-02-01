@@ -70,6 +70,9 @@ RUN npx playwright install --with-deps chromium && \
 RUN fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher"
 RUN fish -c "fisher install gazorby/fifc"
 
+# Install tmux plugin manager
+RUN git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+
 # Create directories for transfer and workspace (need sudo for /workspace)
 RUN sudo mkdir -p /transfer /workspace && \
     sudo chown dev:dev /transfer /workspace

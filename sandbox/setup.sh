@@ -79,6 +79,9 @@ for i in 1 2 3; do
 	sleep 2
 done
 
+echo "==> Installing tmux plugin manager..."
+git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+
 echo "==> Changing default shell to fish..."
 sudo chsh -s /usr/bin/fish "$USER"
 
