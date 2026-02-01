@@ -54,7 +54,8 @@ end
 function select_snapshot
     set -l name $argv[1]
     if test -n "$name"
-        set -l id (hcloud image list --type snapshot -o json | jq -r ".[] | select(.description == \"$name\") | .id")
+        set -l id (hcloud image list --type snapshot -o json \
+            | jq -r ".[] | select(.description == \"$name\") | .id")
         if test -z "$id"
             die "Snapshot '$name' not found."
         end
@@ -104,7 +105,8 @@ function cmd_restore
     or return 1
     test -z "$snapshot"; and return 1
 
-    set -l snapshot_json (hcloud image list --type snapshot -o json | jq -r ".[] | select(.description == \"$snapshot\")")
+    set -l snapshot_json (hcloud image list --type snapshot -o json \
+        | jq -r ".[] | select(.description == \"$snapshot\")")
     set -l snapshot_id (echo $snapshot_json | jq -r '.id')
     set -l default_server (echo $snapshot_json | jq -r '.labels["original-server"] // ""')
     set -l default_type (echo $snapshot_json | jq -r '.labels["server-type"] // ""')
@@ -132,9 +134,13 @@ function cmd_restore
     if test -z "$server_type"
         set -l types_json (hcloud server-type list -o json)
         set -l header (printf "%-12s %5s %8s %8s %s" NAME CORES MEMORY DISK DESCRIPTION)
-        set -l types_table (echo $types_json | jq -r '.[] | select(.deprecated == false) | "\(.name)|\(.cores)|\(.memory)|\(.disk)|\(.description)"' | while read -l line
+        set -l jq_query '.[]
+            | select(.deprecated == false)
+            | "\(.name)|\(.cores)|\(.memory)|\(.disk)|\(.description)"'
+        set -l types_table (echo $types_json | jq -r $jq_query | while read -l line
             set -l parts (string split '|' $line)
-            printf "%-12s %5s %6s GB %6s GB %s\n" $parts[1] $parts[2] $parts[3] $parts[4] $parts[5]
+            printf "%-12s %5s %6s GB %6s GB %s\n" \
+                $parts[1] $parts[2] $parts[3] $parts[4] $parts[5]
         end)
         # Move default type to top if set
         if test -n "$default_type"
@@ -142,7 +148,9 @@ function cmd_restore
             set -l other_lines (printf '%s\n' $types_table | string match -v -e "$default_type")
             set types_table $default_line $other_lines
         end
-        set -l selected (printf '%s\n' $types_table | gum filter --header "$header" --placeholder "Server type (was: $default_type)...")
+        set -l selected (printf '%s\n' $types_table \
+            | gum filter --header "$header" \
+                --placeholder "Server type (was: $default_type)...")
         set server_type (echo $selected | awk '{print $1}')
     end
     test -z "$server_type"; and die "Server type is required."
@@ -190,7 +198,8 @@ function cmd_restore
         info "SSH key: $ssh_key"
     end
 
-    set -l ipv4 (hcloud server describe "$server_name" -o json | jq -r '.public_net.ipv4.ip // empty')
+    set -l ipv4 (hcloud server describe "$server_name" -o json \
+        | jq -r '.public_net.ipv4.ip // empty')
     if test -n "$ipv4"
         info "IPv4: $ipv4"
     end
@@ -234,7 +243,8 @@ function cmd_list
         return 0
     end
 
-    printf "%-40s %8s %10s %-15s %-10s %-8s %-12s\n" NAME ID SIZE SERVER TYPE LOC CREATED | gum style --bold
+    set -l fmt "%-40s %8s %10s %-15s %-10s %-8s %-12s\n"
+    printf $fmt NAME ID SIZE SERVER TYPE LOC CREATED | gum style --bold
     gum style --foreground 240 (string repeat -n 110 ─)
 
     echo $snapshots | jq -r '.[] | [
@@ -246,7 +256,7 @@ function cmd_list
         (.labels["location"] // "-")[:8],
         (.created // "-")[:10]
     ] | @tsv' | while read -l name id size server type loc created
-        printf "%-40s %8s %10s %-15s %-10s %-8s %-12s\n" $name $id $size $server $type $loc $created
+        printf $fmt $name $id $size $server $type $loc $created
     end
 end
 
@@ -255,7 +265,8 @@ function cmd_clean
     or return 1
     test -z "$snapshot"; and return 1
 
-    set -l snapshot_id (hcloud image list --type snapshot -o json | jq -r ".[] | select(.description == \"$snapshot\") | .id")
+    set -l snapshot_id (hcloud image list --type snapshot -o json \
+        | jq -r ".[] | select(.description == \"$snapshot\") | .id")
 
     if not gum confirm "Delete snapshot '$snapshot'? This cannot be undone."
         info "Aborted."
