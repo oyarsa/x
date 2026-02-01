@@ -132,7 +132,7 @@ function cmd_restore
     if test -z "$server_type"
         set -l types_json (hcloud server-type list -o json)
         set -l header (printf "%-12s %5s %8s %8s %s" NAME CORES MEMORY DISK DESCRIPTION)
-        set -l types_table (echo $types_json | jq -r '.[] | "\(.name)|\(.cores)|\(.memory)|\(.disk)|\(.description)"' | while read -l line
+        set -l types_table (echo $types_json | jq -r '.[] | select(.deprecated == false) | "\(.name)|\(.cores)|\(.memory)|\(.disk)|\(.description)"' | while read -l line
             set -l parts (string split '|' $line)
             printf "%-12s %5s %6s GB %6s GB %s\n" $parts[1] $parts[2] $parts[3] $parts[4] $parts[5]
         end)
