@@ -20,28 +20,42 @@ set -g script_name (basename (status filename))
 set -g script_version "0.2.0"
 set -g script_date 2025-01-31
 
+# Print an error message and exit with status 1.
+# argv: Error message to display
 function die
     gum style --foreground 196 --bold "✗ $argv"
     exit 1
 end
 
+# Print a success message.
+# argv: Success message to display
 function success
     gum style --foreground 82 --bold "✓ $argv"
 end
 
+# Print an informational message (indented).
+# argv: Info message to display
 function info
     gum style --foreground 245 "  $argv"
 end
 
+# List all server names.
+# stdout: One server name per line
 function get_server_names
     hcloud server list -o json | jq -r '.[].name'
 end
 
+# List all snapshot names (falls back to "id:<id>" if no description).
+# stdout: One snapshot name per line
 function get_snapshot_names
     hcloud image list --type snapshot -o json \
         | jq -r '.[] | .description // ("id:" + (.id|tostring))'
 end
 
+# Select a server by name or interactively.
+# argv[1]: Server name (optional; prompts interactively if omitted)
+# stdout: Selected server name
+# Returns 1 or calls die if server not found or none available
 function select_server
     set -l name $argv[1]
     if test -n "$name"
@@ -59,6 +73,10 @@ function select_server
     printf '%s\n' $servers | gum filter --placeholder "Select server..."
 end
 
+# Select a snapshot by name or interactively.
+# argv[1]: Snapshot name (optional; prompts interactively if omitted)
+# stdout: Selected snapshot name
+# Returns 1 or calls die if snapshot not found or none available
 function select_snapshot
     set -l name $argv[1]
     if test -n "$name"
@@ -78,6 +96,8 @@ function select_snapshot
     printf '%s\n' $snapshots | gum filter --placeholder "Select snapshot..."
 end
 
+# Create a snapshot of a server with metadata labels.
+# argv[1]: Server name (optional; prompts interactively if omitted)
 function cmd_snapshot
     set -l server (select_server $argv[1])
     or return 1
@@ -105,6 +125,10 @@ function cmd_snapshot
     info "Location: $location"
 end
 
+# Restore a server from a snapshot.
+# argv[1]: Snapshot name (optional; prompts interactively if omitted)
+# Options: -n/--name, -t/--type, -l/--location, -k/--ssh-key
+#          (all optional; prompts interactively if omitted)
 function cmd_restore
     argparse 'n/name=' 't/type=' 'l/location=' 'k/ssh-key=' -- $argv
     or return 1
@@ -214,6 +238,9 @@ function cmd_restore
     end
 end
 
+# Destroy a server, optionally creating a snapshot first.
+# argv[1]: Server name (optional; prompts interactively if omitted)
+# Options: --no-snapshot (skip snapshot prompt)
 function cmd_destroy
     argparse no-snapshot -- $argv
     or return 1
@@ -242,6 +269,7 @@ function cmd_destroy
     success "Server '$server' destroyed"
 end
 
+# List all snapshots with metadata in a table format.
 function cmd_list
     set -l snapshots (hcloud image list --type snapshot -o json)
 
@@ -267,6 +295,8 @@ function cmd_list
     end
 end
 
+# Delete one or more snapshots.
+# argv: Snapshot names (optional; multiselect interactive if omitted)
 function cmd_clean
     set -l snapshots
     set -l snapshots_json (hcloud image list --type snapshot -o json)
