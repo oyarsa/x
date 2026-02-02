@@ -6,7 +6,7 @@
 #   snapshot <server>  - Create a snapshot of a server
 #   restore <snapshot> - Restore a server from a snapshot
 #   destroy <server>   - Destroy a server (optionally snapshot first)
-#   clean <snapshot>   - Delete a snapshot
+#   clean <snapshot...> - Delete one or more snapshots
 #   list               - List all snapshots with metadata
 
 set -g script_name (basename (status filename))
@@ -261,23 +261,52 @@ function cmd_list
 end
 
 function cmd_clean
-    set -l snapshot (select_snapshot $argv[1])
-    or return 1
-    test -z "$snapshot"; and return 1
+    set -l snapshots
+    set -l snapshots_json (hcloud image list --type snapshot -o json)
 
-    set -l snapshot_id (hcloud image list --type snapshot -o json \
-        | jq -r ".[] | select(.description == \"$snapshot\") | .id")
+    if test (count $argv) -gt 0
+        # Validate each provided snapshot
+        for name in $argv
+            set -l id (echo $snapshots_json | jq -r ".[] | select(.description == \"$name\") | .id")
+            if test -z "$id"
+                die "Snapshot '$name' not found."
+            end
+            set -a snapshots $name
+        end
+    else
+        # Interactive multiselect
+        set -l available (echo $snapshots_json | jq -r '.[].description // "id:\(.[].id)"')
+        if test -z "$available"
+            die "No snapshots found."
+        end
+        set snapshots (printf '%s\n' $available | gum filter --no-limit --placeholder "Select snapshots (tab to select, enter to confirm)...")
+        if test -z "$snapshots"
+            info "No snapshots selected."
+            return 0
+        end
+    end
 
-    if not gum confirm "Delete snapshot '$snapshot'? This cannot be undone."
+    # Show what will be deleted
+    set -l count (count $snapshots)
+    gum style --bold "Snapshots to delete:"
+    for s in $snapshots
+        info $s
+    end
+    echo
+
+    if not gum confirm "Delete $count snapshot(s)? This cannot be undone."
         info "Aborted."
         return 0
     end
 
-    info "Deleting snapshot '$snapshot'..."
-    hcloud image delete "$snapshot_id"
-    or die "Failed to delete snapshot"
-
-    success "Snapshot '$snapshot' deleted"
+    # Delete each snapshot
+    for snapshot in $snapshots
+        set -l snapshot_id (echo $snapshots_json | jq -r ".[] | select(.description == \"$snapshot\") | .id")
+        info "Deleting snapshot '$snapshot'..."
+        hcloud image delete "$snapshot_id"
+        or die "Failed to delete snapshot '$snapshot'"
+        success "Snapshot '$snapshot' deleted"
+    end
 end
 
 function show_help
@@ -289,7 +318,7 @@ function show_help
     echo "  snapshot [server]  - Create a snapshot of a server"
     echo "  restore [snapshot] - Restore a server from a snapshot"
     echo "  destroy [server]   - Destroy a server"
-    echo "  clean [snapshot]   - Delete a snapshot"
+    echo "  clean [snapshot...] - Delete one or more snapshots"
     echo "  list               - List all snapshots"
     echo
     echo "Options:"
@@ -342,12 +371,12 @@ function show_help_list
 end
 
 function show_help_clean
-    echo "Delete a snapshot."
+    echo "Delete one or more snapshots."
     echo
-    echo "Usage: $script_name clean [snapshot]"
+    echo "Usage: $script_name clean [snapshot...]"
     echo
     echo "Arguments:"
-    echo "  snapshot  - Snapshot name (interactive if omitted)"
+    echo "  snapshot...  - Snapshot names (multiselect interactive if omitted)"
 end
 
 function main
