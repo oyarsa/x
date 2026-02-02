@@ -31,7 +31,8 @@ function get_server_names
 end
 
 function get_snapshot_names
-    hcloud image list --type snapshot -o json | jq -r '.[].description // "id:\(.[].id)"'
+    hcloud image list --type snapshot -o json \
+        | jq -r '.[] | .description // ("id:" + (.id|tostring))'
 end
 
 function select_server
@@ -55,7 +56,7 @@ function select_snapshot
     set -l name $argv[1]
     if test -n "$name"
         set -l id (hcloud image list --type snapshot -o json \
-            | jq -r ".[] | select(.description == \"$name\") | .id")
+            | jq -r --arg s "$name" '.[] | select(.description == $s) | .id')
         if test -z "$id"
             die "Snapshot '$name' not found."
         end
@@ -79,7 +80,7 @@ function cmd_snapshot
     set -l server_type (echo $server_json | jq -r '.server_type.name')
     set -l location (echo $server_json | jq -r '.datacenter.location.name')
 
-    set -l timestamp (date -u +%Y%m%dT%H%M%S%3N)
+    set -l timestamp (date -u +%Y%m%dT%H%M%S)
     set -l snapshot_name "$server-$timestamp"
 
     info "Creating snapshot '$snapshot_name'..."
@@ -106,7 +107,7 @@ function cmd_restore
     test -z "$snapshot"; and return 1
 
     set -l snapshot_json (hcloud image list --type snapshot -o json \
-        | jq -r ".[] | select(.description == \"$snapshot\")")
+        | jq -r --arg s "$snapshot" '.[] | select(.description == $s)')
     set -l snapshot_id (echo $snapshot_json | jq -r '.id')
     set -l default_server (echo $snapshot_json | jq -r '.labels["original-server"] // ""')
     set -l default_type (echo $snapshot_json | jq -r '.labels["server-type"] // ""')
@@ -144,8 +145,8 @@ function cmd_restore
         end)
         # Move default type to top if set
         if test -n "$default_type"
-            set -l default_line (printf '%s\n' $types_table | string match -e "$default_type")
-            set -l other_lines (printf '%s\n' $types_table | string match -v -e "$default_type")
+            set -l default_line (printf '%s\n' $types_table | string match -F "$default_type")
+            set -l other_lines (printf '%s\n' $types_table | string match -vF "$default_type")
             set types_table $default_line $other_lines
         end
         set -l selected (printf '%s\n' $types_table \
@@ -216,9 +217,7 @@ function cmd_destroy
     if not set -q _flag_no_snapshot
         if gum confirm "Create snapshot of '$server' before destroying?"
             cmd_snapshot "$server"
-            or begin
-                die "Snapshot failed. Aborting."
-            end
+            or die "Snapshot failed. Aborting."
             echo
         end
     end
@@ -267,7 +266,8 @@ function cmd_clean
     if test (count $argv) -gt 0
         # Validate each provided snapshot
         for name in $argv
-            set -l id (echo $snapshots_json | jq -r ".[] | select(.description == \"$name\") | .id")
+            set -l id (echo $snapshots_json \
+                | jq -r --arg s "$name" '.[] | select(.description == $s) | .id')
             if test -z "$id"
                 die "Snapshot '$name' not found."
             end
@@ -275,11 +275,14 @@ function cmd_clean
         end
     else
         # Interactive multiselect
-        set -l available (echo $snapshots_json | jq -r '.[].description // "id:\(.[].id)"')
+        set -l available (echo $snapshots_json \
+            | jq -r '.[] | .description // ("id:" + (.id|tostring))')
         if test -z "$available"
             die "No snapshots found."
         end
-        set snapshots (printf '%s\n' $available | gum filter --no-limit --placeholder "Select snapshots (tab to select, enter to confirm)...")
+        set snapshots (printf '%s\n' $available \
+            | gum filter --no-limit \
+                --placeholder "Select snapshots (tab to select, enter to confirm)...")
         if test -z "$snapshots"
             info "No snapshots selected."
             return 0
@@ -301,7 +304,8 @@ function cmd_clean
 
     # Delete each snapshot
     for snapshot in $snapshots
-        set -l snapshot_id (echo $snapshots_json | jq -r ".[] | select(.description == \"$snapshot\") | .id")
+        set -l snapshot_id (echo $snapshots_json \
+            | jq -r --arg s "$snapshot" '.[] | select(.description == $s) | .id')
         info "Deleting snapshot '$snapshot'..."
         hcloud image delete "$snapshot_id"
         or die "Failed to delete snapshot '$snapshot'"
