@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y software-properties-common && \
     fish \
     build-essential \
     python3-dev \
+    ruby \
     kitty-terminfo \
     zstd \
     ca-certificates \

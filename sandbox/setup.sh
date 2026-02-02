@@ -23,6 +23,7 @@ sudo apt-get install -y \
 	fish \
 	build-essential \
 	python3-dev \
+	ruby \
 	kitty-terminfo \
 	zstd \
 	ca-certificates \
