@@ -1,13 +1,20 @@
 #!/usr/bin/env fish
 #
-# Hetzner Cloud snapshot workflow manager.
+# het - Hetzner Cloud snapshot workflow manager
+#
+# A tool for managing Hetzner Cloud server snapshots. Designed for workflows
+# where you spin up temporary servers, snapshot them when done, and restore
+# them later. Snapshots store metadata (original server name, type, location)
+# so restores can use the same configuration.
 #
 # Commands:
-#   snapshot <server>  - Create a snapshot of a server
-#   restore <snapshot> - Restore a server from a snapshot
-#   destroy <server>   - Destroy a server (optionally snapshot first)
+#   snapshot <server>   - Create a snapshot with metadata labels
+#   restore <snapshot>  - Create a new server from a snapshot
+#   destroy <server>    - Destroy a server (optionally snapshot first)
 #   clean <snapshot...> - Delete one or more snapshots
-#   list               - List all snapshots with metadata
+#   list                - List all snapshots with metadata
+#
+# All commands support interactive selection if arguments are omitted.
 
 set -g script_name (basename (status filename))
 set -g script_version "0.2.0"
@@ -163,7 +170,8 @@ function cmd_restore
         if test -n "$default_location"
             set locations $default_location (string match -v $default_location -- $locations)
         end
-        set location (printf '%s\n' $locations | gum choose --header "Location (was: $default_location)")
+        set location (printf '%s\n' $locations |
+            gum choose --header "Location (was: $default_location)")
     end
     test -z "$location"; and die "Location is required."
 
