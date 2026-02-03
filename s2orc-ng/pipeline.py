@@ -1,9 +1,11 @@
 """Unified pipeline for acquiring S2ORC NLP dataset.
 
-Three phases, each resumable:
+Five phases, each resumable:
 1. index: Build corpus ID index AND extract paper metadata from `papers` dataset
 2. fulltext: Extract full paper text from `s2orc_v2` dataset
 3. citations: Extract citation relationships from `citations` dataset
+4. derive: Compute co-citations and bibliographic coupling from citation graph
+5. splits: Create train/dev/test splits by publication year
 
 Run all phases with: uv run pipeline.py all <output_dir>
 """
@@ -862,6 +864,146 @@ async def run_citations(
     log(f"\nCitations complete: {stats.records_matched:,} links")
 
 
+# === Phase 4: Postprocess ===
+
+
+def load_references(path: Path) -> dict[int, list[int]]:
+    """Load references from JSONL file."""
+    refs: dict[int, list[int]] = {}
+    with open(path, encoding="utf-8") as f:
+        for line in tqdm(f, desc="Loading references", leave=False):
+            if line.strip():
+                record = json.loads(line)
+                refs[record["paper_id"]] = record["references"]
+    return refs
+
+
+def load_metadata_years(path: Path) -> dict[int, int]:
+    """Load paper years from metadata JSONL file."""
+    years: dict[int, int] = {}
+    with open(path, encoding="utf-8") as f:
+        for line in tqdm(f, desc="Loading metadata", leave=False):
+            if line.strip():
+                record = json.loads(line)
+                corpus_id = record.get("corpusid")
+                year = record.get("year")
+                if corpus_id and year:
+                    years[corpus_id] = year
+    return years
+
+
+def run_derive(
+    output_dir: Path,
+    min_co_citations: int = 2,
+    min_shared_refs: int = 3,
+) -> None:
+    """Phase 4: Compute co-citations and bibliographic coupling from citation graph."""
+    refs_path = output_dir / "citations" / "references.jsonl"
+
+    if not refs_path.exists():
+        die(f"References not found: {refs_path}\nRun 'citations' phase first.")
+
+    log("Loading references...")
+    refs = load_references(refs_path)
+    log(f"  {len(refs):,} papers with references")
+    log("")
+
+    # === Co-citations ===
+    log("Computing co-citations...")
+    pair_counts: Counter[tuple[int, int]] = Counter()
+    for _paper_id, cited_ids in tqdm(refs.items(), desc="Co-citations", leave=False):
+        cited_sorted = sorted(cited_ids)
+        n = len(cited_sorted)
+        for i in range(n):
+            for j in range(i + 1, n):
+                pair_counts[(cited_sorted[i], cited_sorted[j])] += 1
+
+    co_cite_pairs = [(p, c) for p, c in pair_counts.items() if c >= min_co_citations]
+    co_cite_pairs.sort(key=lambda x: -x[1])
+
+    co_cite_path = output_dir / "citations" / "co_citations.jsonl"
+    with open(co_cite_path, "w", encoding="utf-8") as f:
+        f.writelines(
+            json.dumps({"paper_a": paper_a, "paper_b": paper_b, "count": count}) + "\n"
+            for (paper_a, paper_b), count in co_cite_pairs
+        )
+    log(f"  Wrote {len(co_cite_pairs):,} pairs to co_citations.jsonl")
+
+    # === Bibliographic coupling ===
+    log("Computing bibliographic coupling...")
+    cited_by: dict[int, set[int]] = defaultdict(set)
+    for paper_id, cited_ids in refs.items():
+        for cited in cited_ids:
+            cited_by[cited].add(paper_id)
+
+    bib_counts: Counter[tuple[int, int]] = Counter()
+    for citing_papers in tqdm(cited_by.values(), desc="Bib coupling", leave=False):
+        citing_list = sorted(citing_papers)
+        n = len(citing_list)
+        for i in range(n):
+            for j in range(i + 1, n):
+                bib_counts[(citing_list[i], citing_list[j])] += 1
+
+    bib_pairs = [(p, c) for p, c in bib_counts.items() if c >= min_shared_refs]
+    bib_pairs.sort(key=lambda x: -x[1])
+
+    bib_path = output_dir / "citations" / "bib_coupling.jsonl"
+    with open(bib_path, "w", encoding="utf-8") as f:
+        f.writelines(
+            json.dumps({"paper_a": paper_a, "paper_b": paper_b, "shared_refs": shared})
+            + "\n"
+            for (paper_a, paper_b), shared in bib_pairs
+        )
+    log(f"  Wrote {len(bib_pairs):,} pairs to bib_coupling.jsonl")
+
+    log("\nDerived data complete!")
+
+
+def run_splits(
+    output_dir: Path,
+    train_years: tuple[int, int] = (2020, 2023),
+    dev_year: int = 2024,
+    test_year: int = 2025,
+) -> None:
+    """Phase 5: Create train/dev/test splits by publication year."""
+    metadata_path = output_dir / "papers" / "metadata.jsonl"
+
+    if not metadata_path.exists():
+        die(f"Metadata not found: {metadata_path}\nRun 'index' phase first.")
+
+    log("Loading metadata...")
+    years = load_metadata_years(metadata_path)
+    log(f"  {len(years):,} papers with year info")
+    log("")
+
+    train_ids: list[int] = []
+    dev_ids: list[int] = []
+    test_ids: list[int] = []
+
+    for paper_id, year in years.items():
+        if train_years[0] <= year <= train_years[1]:
+            train_ids.append(paper_id)
+        elif year == dev_year:
+            dev_ids.append(paper_id)
+        elif year == test_year:
+            test_ids.append(paper_id)
+
+    splits_dir = output_dir / "splits"
+    splits_dir.mkdir(parents=True, exist_ok=True)
+
+    for name, ids in [("train", train_ids), ("dev", dev_ids), ("test", test_ids)]:
+        path = splits_dir / f"{name}.txt"
+        with open(path, "w") as f:
+            for paper_id in sorted(ids):
+                f.write(f"{paper_id}\n")
+
+    log(f"  Train ({train_years[0]}-{train_years[1]}): {len(train_ids):,}")
+    log(f"  Dev ({dev_year}): {len(dev_ids):,}")
+    log(f"  Test ({test_year}): {len(test_ids):,}")
+
+    log("\nSplits complete!")
+
+
 # === CLI Commands ===
 
 
@@ -973,8 +1115,8 @@ def cmd_citations(
     asyncio.run(run_citations(output_dir, limit, dry_run, force, concurrent))
 
 
-@app.command(name="postprocess")
-def cmd_postprocess(
+@app.command(name="derive")
+def cmd_derive(
     output_dir: Annotated[Path, typer.Argument(help="Output directory.")],
     min_co_citations: Annotated[
         int, typer.Option("--min-co-citations", help="Min co-citation count.")
@@ -982,6 +1124,17 @@ def cmd_postprocess(
     min_shared_refs: Annotated[
         int, typer.Option("--min-shared-refs", help="Min shared references.")
     ] = 3,
+) -> None:
+    """Phase 4: Compute co-citations and bibliographic coupling."""
+    log("=== Phase 4: Derive ===")
+    log("")
+
+    run_derive(output_dir, min_co_citations, min_shared_refs)
+
+
+@app.command(name="splits")
+def cmd_splits(
+    output_dir: Annotated[Path, typer.Argument(help="Output directory.")],
     train_start: Annotated[
         int, typer.Option("--train-start", help="First year for training set.")
     ] = 2020,
@@ -995,18 +1148,11 @@ def cmd_postprocess(
         int, typer.Option("--test-year", help="Year for test set.")
     ] = 2025,
 ) -> None:
-    """Phase 4: Compute co-citations, bibliographic coupling, and splits."""
-    log("=== Phase 4: Postprocess ===")
+    """Phase 5: Create train/dev/test splits by publication year."""
+    log("=== Phase 5: Splits ===")
     log("")
 
-    run_postprocess(
-        output_dir,
-        min_co_citations,
-        min_shared_refs,
-        (train_start, train_end),
-        dev_year,
-        test_year,
-    )
+    run_splits(output_dir, (train_start, train_end), dev_year, test_year)
 
 
 @app.command(name="all")
@@ -1053,7 +1199,7 @@ def cmd_all(
         int, typer.Option("--test-year", help="Year for test set.")
     ] = 2025,
 ) -> None:
-    """Run all four phases: index, fulltext, citations, postprocess.
+    """Run all five phases: index, fulltext, citations, derive, splits.
 
     Each phase is resumable. If interrupted, just run again.
     """
@@ -1094,16 +1240,14 @@ def cmd_all(
 
     if not dry_run:
         log("")
-        log("--- Phase 4: Postprocess ---")
+        log("--- Phase 4: Derive ---")
         log("")
-        run_postprocess(
-            output_dir,
-            min_co_citations,
-            min_shared_refs,
-            (train_start, train_end),
-            dev_year,
-            test_year,
-        )
+        run_derive(output_dir, min_co_citations, min_shared_refs)
+
+        log("")
+        log("--- Phase 5: Splits ---")
+        log("")
+        run_splits(output_dir, (train_start, train_end), dev_year, test_year)
 
     log("")
     log("=== Pipeline Complete ===")
