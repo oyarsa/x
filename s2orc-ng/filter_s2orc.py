@@ -539,7 +539,7 @@ async def filter_s2orc(
     if index_path is None:
         index_path = output_dir / "corpus_ids.txt"
 
-    processed_path = output_dir / "processed_s2orc.txt"
+    processed_path = output_dir / "processed_fulltext.txt"
     output_path = output_dir / "s2orc_filtered.jsonl.gz"
     stats_path = output_dir / "filter_stats.json"
 

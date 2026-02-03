@@ -20,6 +20,10 @@ RETRY_DELAY = 5  # seconds
 # HTTP status codes that indicate expired/invalid pre-signed URLs
 AUTH_ERROR_CODES = {400, 401, 403}
 
+# Rate limit status code
+RATE_LIMIT_CODE = 429
+RATE_LIMIT_BASE_DELAY = 60  # Start with 1 minute backoff
+
 # Type alias for URL refresher callback
 UrlRefresher = Callable[[], Awaitable[str]]
 
@@ -77,6 +81,7 @@ async def download_file(
     """
     part_path = dest.with_suffix(dest.suffix + ".part")
     current_url = url
+    rate_limit_backoff = 0  # Exponential backoff counter for 429s
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -85,11 +90,22 @@ async def download_file(
             )
             part_path.rename(dest)
         except httpx.HTTPStatusError as e:
-            if e.response.status_code in AUTH_ERROR_CODES and url_refresher:
+            status = e.response.status_code
+
+            # Handle auth errors by refreshing URL
+            if status in AUTH_ERROR_CODES and url_refresher:
                 print(f"Auth error for {dest.name}, refreshing URL...")
                 current_url = await url_refresher()
-                # Don't count this as a retry attempt
-                continue
+                continue  # Don't count as retry
+
+            # Handle rate limiting with exponential backoff
+            if status == RATE_LIMIT_CODE:
+                delay = RATE_LIMIT_BASE_DELAY * (2**rate_limit_backoff)
+                rate_limit_backoff += 1
+                print(f"Rate limited for {dest.name}, waiting {delay}s...")
+                await asyncio.sleep(delay)
+                continue  # Don't count as retry
+
             print(
                 f"Error downloading {dest.name}: {e}. Retrying..."
                 f" (Attempt {attempt + 1}/{MAX_RETRIES})"
