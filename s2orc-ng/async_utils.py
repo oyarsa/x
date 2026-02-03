@@ -2,7 +2,7 @@
 
 import asyncio
 import urllib.parse
-from collections.abc import Awaitable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +16,12 @@ from tqdm import tqdm
 DOWNLOAD_TIMEOUT = 3600  # 1 hour per file
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
+
+# HTTP status codes that indicate expired/invalid pre-signed URLs
+AUTH_ERROR_CODES = {400, 401, 403}
+
+# Type alias for URL refresher callback
+UrlRefresher = Callable[[], Awaitable[str]]
 
 
 # === Progress utilities ===
@@ -54,14 +60,42 @@ def get_filename_from_url(url: str) -> str:
     return urllib.parse.urlparse(url).path.split("/")[-1]
 
 
-async def download_file(url: str, dest: Path, desc: str | None = None) -> int:
-    """Download a file with progress tracking and retries. Returns bytes downloaded."""
+async def download_file(
+    url: str,
+    dest: Path,
+    desc: str | None = None,
+    url_refresher: UrlRefresher | None = None,
+) -> int:
+    """Download a file with progress tracking and retries. Returns bytes downloaded.
+
+    Args:
+        url: The URL to download from.
+        dest: Destination path for the downloaded file.
+        desc: Description for the progress bar.
+        url_refresher: Optional async callback to get a fresh URL when auth errors occur.
+            This is useful for pre-signed S3 URLs that may expire during long runs.
+    """
     part_path = dest.with_suffix(dest.suffix + ".part")
+    current_url = url
 
     for attempt in range(MAX_RETRIES):
         try:
-            bytes_downloaded = await _try_download_file(url, dest, part_path, desc)
+            bytes_downloaded = await _try_download_file(
+                current_url, dest, part_path, desc
+            )
             part_path.rename(dest)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in AUTH_ERROR_CODES and url_refresher:
+                print(f"Auth error for {dest.name}, refreshing URL...")
+                current_url = await url_refresher()
+                # Don't count this as a retry attempt
+                continue
+            print(
+                f"Error downloading {dest.name}: {e}. Retrying..."
+                f" (Attempt {attempt + 1}/{MAX_RETRIES})"
+            )
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(RETRY_DELAY)
         except Exception as e:
             print(
                 f"Error downloading {dest.name}: {e}. Retrying..."

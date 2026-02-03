@@ -14,7 +14,7 @@ import json
 import os
 import re
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -26,6 +26,7 @@ import httpx
 import typer
 from tqdm import tqdm
 
+import async_utils
 from async_utils import download_file, get_filename_from_url
 
 # === Constants ===
@@ -167,6 +168,25 @@ async def get_dataset_info(client: httpx.AsyncClient, name: str) -> DatasetInfo:
     )
 
 
+def make_url_refresher(
+    client: httpx.AsyncClient, dataset_name: str, filename: str
+) -> async_utils.UrlRefresher:
+    """Create a URL refresher callback for a specific file.
+
+    When called, re-fetches the dataset info and returns the fresh URL
+    for the specified filename.
+    """
+
+    async def refresh() -> str:
+        dataset = await get_dataset_info(client, dataset_name)
+        for url in dataset.files:
+            if get_filename_from_url(url) == filename:
+                return url
+        raise RuntimeError(f"File {filename} not found in refreshed dataset")
+
+    return refresh
+
+
 async def load_processed_files(path: Path) -> set[str]:
     """Load set of processed filenames."""
     if not path.exists():
@@ -288,12 +308,16 @@ async def download_and_process_index(
     output_dir: Path,
     year_range: tuple[int, int],
     venue_matcher: Callable[[str], bool],
+    client: httpx.AsyncClient,
 ) -> tuple[IndexResult, int]:
     """Download a papers file and extract corpus IDs + metadata."""
     temp_path = output_dir / f".temp_{filename}"
+    refresher = make_url_refresher(client, "papers", filename)
     try:
         log(f"[{idx}/{total}] Downloading {filename}...")
-        bytes_downloaded = await download_file(url, temp_path, f"[{idx}/{total}]")
+        bytes_downloaded = await download_file(
+            url, temp_path, f"[{idx}/{total}]", url_refresher=refresher
+        )
 
         log(f"[{idx}/{total}] Processing {filename}...")
         result = await asyncio.to_thread(
@@ -345,11 +369,11 @@ async def run_index(
         if metadata_path.exists():
             metadata_path.unlink()
 
-    async with httpx.AsyncClient() as client:
-        log("Fetching papers dataset info...")
-        dataset = await get_dataset_info(client, "papers")
-        log(f"  Release: {dataset.release_id}")
-        log(f"  Files: {len(dataset.files)}")
+    client = httpx.AsyncClient()
+    log("Fetching papers dataset info...")
+    dataset = await get_dataset_info(client, "papers")
+    log(f"  Release: {dataset.release_id}")
+    log(f"  Files: {len(dataset.files)}")
 
     files_to_process = dataset.files[:limit_files] if limit_files else dataset.files
     files_with_names = [(url, get_filename_from_url(url)) for url in files_to_process]
@@ -389,7 +413,14 @@ async def run_index(
             async with semaphore:
                 try:
                     result, bytes_dl = await download_and_process_index(
-                        url, filename, idx, total, output_dir, year_range, venue_matcher
+                        url,
+                        filename,
+                        idx,
+                        total,
+                        output_dir,
+                        year_range,
+                        venue_matcher,
+                        client,
                     )
                     async with state_lock:
                         corpus_ids.update(result.corpus_ids)
@@ -417,6 +448,8 @@ async def run_index(
             for i, (url, filename) in enumerate(remaining_files, 1)
         ]
         await asyncio.gather(*tasks)
+
+    await client.aclose()
 
     async with aiofiles.open(stats_path, "w") as f:
         await f.write(
@@ -473,12 +506,16 @@ async def download_and_process_fulltext(
     total: int,
     output_dir: Path,
     corpus_ids: set[int],
+    client: httpx.AsyncClient,
 ) -> tuple[list[str], int]:
     """Download s2orc file and extract matching records."""
     temp_path = output_dir / f".temp_{filename}"
+    refresher = make_url_refresher(client, "s2orc_v2", filename)
     try:
         log(f"[{idx}/{total}] Downloading {filename}...")
-        bytes_downloaded = await download_file(url, temp_path, f"[{idx}/{total}]")
+        bytes_downloaded = await download_file(
+            url, temp_path, f"[{idx}/{total}]", url_refresher=refresher
+        )
 
         log(f"[{idx}/{total}] Processing {filename}...")
         matched = await asyncio.to_thread(
@@ -540,11 +577,11 @@ async def run_fulltext(
     stats = Stats()
     stats.records_matched = prior_matches  # Start from existing count
 
-    async with httpx.AsyncClient() as client:
-        log("Fetching s2orc_v2 dataset info...")
-        dataset = await get_dataset_info(client, "s2orc_v2")
-        log(f"  Release: {dataset.release_id}")
-        log(f"  Files: {len(dataset.files)}")
+    client = httpx.AsyncClient()
+    log("Fetching s2orc_v2 dataset info...")
+    dataset = await get_dataset_info(client, "s2orc_v2")
+    log(f"  Release: {dataset.release_id}")
+    log(f"  Files: {len(dataset.files)}")
 
     files_to_process = dataset.files[:limit_files] if limit_files else dataset.files
     files_with_names = [(url, get_filename_from_url(url)) for url in files_to_process]
@@ -587,7 +624,7 @@ async def run_fulltext(
             async with semaphore:
                 try:
                     records, bytes_dl = await download_and_process_fulltext(
-                        url, filename, idx, total, output_dir, corpus_ids
+                        url, filename, idx, total, output_dir, corpus_ids, client
                     )
                     async with state_lock:
                         for record in records:
@@ -611,6 +648,8 @@ async def run_fulltext(
             for i, (url, filename) in enumerate(remaining_files, 1)
         ]
         await asyncio.gather(*tasks)
+
+    await client.aclose()
 
     log(f"\nFull text extraction complete: {stats.records_matched:,} papers")
     log(f"  Files processed this run: {stats.files_processed}")
@@ -646,12 +685,16 @@ async def download_and_process_citations(
     total: int,
     output_dir: Path,
     corpus_ids: set[int],
+    client: httpx.AsyncClient,
 ) -> tuple[list[str], int]:
     """Download citations file and extract matching links."""
     temp_path = output_dir / f".temp_{filename}"
+    refresher = make_url_refresher(client, "citations", filename)
     try:
         log(f"[{idx}/{total}] Downloading {filename}...")
-        bytes_downloaded = await download_file(url, temp_path, f"[{idx}/{total}]")
+        bytes_downloaded = await download_file(
+            url, temp_path, f"[{idx}/{total}]", url_refresher=refresher
+        )
 
         log(f"[{idx}/{total}] Processing {filename}...")
         matched = await asyncio.to_thread(
@@ -722,11 +765,11 @@ async def run_citations(
     stats = Stats()
     stats.records_matched = prior_links
 
-    async with httpx.AsyncClient() as client:
-        log("Fetching citations dataset info...")
-        dataset = await get_dataset_info(client, "citations")
-        log(f"  Release: {dataset.release_id}")
-        log(f"  Files: {len(dataset.files)}")
+    client = httpx.AsyncClient()
+    log("Fetching citations dataset info...")
+    dataset = await get_dataset_info(client, "citations")
+    log(f"  Release: {dataset.release_id}")
+    log(f"  Files: {len(dataset.files)}")
 
     files_to_process = dataset.files[:limit_files] if limit_files else dataset.files
     files_with_names = [(url, get_filename_from_url(url)) for url in files_to_process]
@@ -763,7 +806,13 @@ async def run_citations(
                 async with semaphore:
                     try:
                         links, bytes_dl = await download_and_process_citations(
-                            url, filename, idx, total, output_dir, corpus_ids
+                            url,
+                            filename,
+                            idx,
+                            total,
+                            output_dir,
+                            corpus_ids,
+                            client,
                         )
                         async with state_lock:
                             await raw_file.writelines(links)
@@ -786,6 +835,8 @@ async def run_citations(
             await asyncio.gather(*tasks)
     else:
         log("\nAll files already processed!")
+
+    await client.aclose()
 
     log("\nAggregating citation links...")
     references, citations = await aggregate_citations(raw_path)
@@ -922,6 +973,42 @@ def cmd_citations(
     asyncio.run(run_citations(output_dir, limit, dry_run, force, concurrent))
 
 
+@app.command(name="postprocess")
+def cmd_postprocess(
+    output_dir: Annotated[Path, typer.Argument(help="Output directory.")],
+    min_co_citations: Annotated[
+        int, typer.Option("--min-co-citations", help="Min co-citation count.")
+    ] = 2,
+    min_shared_refs: Annotated[
+        int, typer.Option("--min-shared-refs", help="Min shared references.")
+    ] = 3,
+    train_start: Annotated[
+        int, typer.Option("--train-start", help="First year for training set.")
+    ] = 2020,
+    train_end: Annotated[
+        int, typer.Option("--train-end", help="Last year for training set.")
+    ] = 2023,
+    dev_year: Annotated[
+        int, typer.Option("--dev-year", help="Year for dev set.")
+    ] = 2024,
+    test_year: Annotated[
+        int, typer.Option("--test-year", help="Year for test set.")
+    ] = 2025,
+) -> None:
+    """Phase 4: Compute co-citations, bibliographic coupling, and splits."""
+    log("=== Phase 4: Postprocess ===")
+    log("")
+
+    run_postprocess(
+        output_dir,
+        min_co_citations,
+        min_shared_refs,
+        (train_start, train_end),
+        dev_year,
+        test_year,
+    )
+
+
 @app.command(name="all")
 def cmd_all(
     output_dir: Annotated[Path, typer.Argument(help="Output directory.")],
@@ -947,8 +1034,26 @@ def cmd_all(
     force: Annotated[
         bool, typer.Option("--force", "-f", help="Start fresh, backing up old data.")
     ] = False,
+    min_co_citations: Annotated[
+        int, typer.Option("--min-co-citations", help="Min co-citation count.")
+    ] = 2,
+    min_shared_refs: Annotated[
+        int, typer.Option("--min-shared-refs", help="Min shared references.")
+    ] = 3,
+    train_start: Annotated[
+        int, typer.Option("--train-start", help="First year for training set.")
+    ] = 2020,
+    train_end: Annotated[
+        int, typer.Option("--train-end", help="Last year for training set.")
+    ] = 2023,
+    dev_year: Annotated[
+        int, typer.Option("--dev-year", help="Year for dev set.")
+    ] = 2024,
+    test_year: Annotated[
+        int, typer.Option("--test-year", help="Year for test set.")
+    ] = 2025,
 ) -> None:
-    """Run all three phases: index, fulltext, citations.
+    """Run all four phases: index, fulltext, citations, postprocess.
 
     Each phase is resumable. If interrupted, just run again.
     """
@@ -986,6 +1091,19 @@ def cmd_all(
     log("--- Phase 3: Citations ---")
     log("")
     asyncio.run(run_citations(output_dir, limit, dry_run, force, concurrent))
+
+    if not dry_run:
+        log("")
+        log("--- Phase 4: Postprocess ---")
+        log("")
+        run_postprocess(
+            output_dir,
+            min_co_citations,
+            min_shared_refs,
+            (train_start, train_end),
+            dev_year,
+            test_year,
+        )
 
     log("")
     log("=== Pipeline Complete ===")
