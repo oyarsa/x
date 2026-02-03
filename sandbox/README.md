@@ -98,7 +98,7 @@ claude-sandbox/
 ## Installed Tools
 
 The sandbox includes:
-- **Shell**: fish, tmux, starship prompt, fzf
+- **Shell**: fish, tmux, fzf
 - **Python**: uv, mise
 - **Node.js**: npm, Claude Code CLI
 - **Rust**: rustup, cargo, clippy, rustfmt
