@@ -124,7 +124,7 @@ class IndexResult:
     """Result of processing a papers file for indexing."""
 
     corpus_ids: set[int] = field(default_factory=set[int])
-    records: list[str] = field(default_factory=list[str])
+    record_count: int = 0
     # Match breakdown
     acl_only: int = 0
     venue_only: int = 0
@@ -278,10 +278,14 @@ def process_papers_file(
     year_range: tuple[int, int],
     venue_matcher: Callable[[str], bool],
     desc: str,
+    output_path: Path,
 ) -> IndexResult:
-    """Process a papers file: extract corpus IDs and full records."""
+    """Process a papers file: extract corpus IDs and write records to output file."""
     result = IndexResult()
-    with gzip.open(path, "rt", encoding="utf-8") as f:
+    with (
+        gzip.open(path, "rt", encoding="utf-8") as f,
+        open(output_path, "w", encoding="utf-8") as out,
+    ):
         for line in tqdm(f, desc=desc, leave=False):
             if not line.strip():
                 continue
@@ -291,7 +295,8 @@ def process_papers_file(
                 corpus_id = record.get("corpusid")
                 if corpus_id:
                     result.corpus_ids.add(corpus_id)
-                    result.records.append(json.dumps(record, ensure_ascii=False) + "\n")
+                    result.record_count += 1
+                    out.write(json.dumps(record, ensure_ascii=False) + "\n")
                     # Track match breakdown
                     if match.has_acl_id and match.has_venue_match:
                         result.both += 1
@@ -302,18 +307,25 @@ def process_papers_file(
     return result
 
 
+def _output_name(filename: str) -> str:
+    """Convert source filename to output filename (remove .gz extension)."""
+    return filename.removesuffix(".gz")
+
+
 async def download_and_process_index(
     url: str,
     filename: str,
     idx: int,
     total: int,
     output_dir: Path,
+    metadata_dir: Path,
     year_range: tuple[int, int],
     venue_matcher: Callable[[str], bool],
     client: httpx.AsyncClient,
 ) -> tuple[IndexResult, int]:
     """Download a papers file and extract corpus IDs + metadata."""
     temp_path = output_dir / f".temp_{filename}"
+    output_path = metadata_dir / _output_name(filename)
     refresher = make_url_refresher(client, "papers", filename)
     try:
         log(f"[{idx}/{total}] Downloading {filename}...")
@@ -328,6 +340,7 @@ async def download_and_process_index(
             year_range,
             venue_matcher,
             f"[{idx}/{total}]",
+            output_path,
         )
         return result, bytes_downloaded
     finally:
@@ -347,7 +360,7 @@ async def run_index(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     index_path = output_dir / "corpus_ids.txt"
-    metadata_path = output_dir / "papers" / "metadata.jsonl"
+    metadata_dir = output_dir / "papers"
     processed_path = output_dir / "processed_index.txt"
     stats_path = output_dir / "index_stats.json"
 
@@ -356,7 +369,8 @@ async def run_index(
 
     if force:
         log("Force mode: backing up previous state...")
-        backup_files([index_path, metadata_path, processed_path, stats_path])
+        backup_files([index_path, processed_path, stats_path])
+        # Note: metadata_dir files are not backed up, they're just overwritten
 
     processed_files = await load_processed_files(processed_path)
     corpus_ids: set[int]
@@ -368,8 +382,6 @@ async def run_index(
         corpus_ids = set()
         if index_path.exists():
             index_path.unlink()
-        if metadata_path.exists():
-            metadata_path.unlink()
 
     client = httpx.AsyncClient()
     log("Fetching papers dataset info...")
@@ -400,56 +412,51 @@ async def run_index(
         log(f"Index contains {len(corpus_ids):,} corpus IDs")
         return
 
-    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_dir.mkdir(parents=True, exist_ok=True)
     log(f"  Concurrent downloads: {max_concurrent}")
     log("")
 
     total = len(remaining_files)
     state_lock = asyncio.Lock()
     semaphore = asyncio.Semaphore(max_concurrent)
-    open_mode = "a" if processed_files else "w"
 
-    async with aiofiles.open(metadata_path, open_mode, encoding="utf-8") as meta_file:
+    async def worker(url: str, filename: str, idx: int) -> None:
+        async with semaphore:
+            try:
+                result, bytes_dl = await download_and_process_index(
+                    url,
+                    filename,
+                    idx,
+                    total,
+                    output_dir,
+                    metadata_dir,
+                    year_range,
+                    venue_matcher,
+                    client,
+                )
+                async with state_lock:
+                    corpus_ids.update(result.corpus_ids)
+                    stats.bytes_downloaded += bytes_dl
+                    stats.files_processed += 1
+                    stats.records_matched += result.record_count
+                    stats.matched_acl_only += result.acl_only
+                    stats.matched_venue_only += result.venue_only
+                    stats.matched_both += result.both
+                    current_total = len(corpus_ids)
+                    await append_corpus_ids(index_path, result.corpus_ids)
+                    await append_processed_file(processed_path, filename)
+                log(
+                    f"[{idx}/{total}] Found {len(result.corpus_ids):,} "
+                    f"(total: {current_total:,})"
+                )
+            except Exception as e:
+                err(f"[{idx}/{total}] Failed {filename}: {e}")
 
-        async def worker(url: str, filename: str, idx: int) -> None:
-            async with semaphore:
-                try:
-                    result, bytes_dl = await download_and_process_index(
-                        url,
-                        filename,
-                        idx,
-                        total,
-                        output_dir,
-                        year_range,
-                        venue_matcher,
-                        client,
-                    )
-                    async with state_lock:
-                        corpus_ids.update(result.corpus_ids)
-                        stats.bytes_downloaded += bytes_dl
-                        stats.files_processed += 1
-                        stats.records_matched += len(result.corpus_ids)
-                        stats.matched_acl_only += result.acl_only
-                        stats.matched_venue_only += result.venue_only
-                        stats.matched_both += result.both
-                        current_total = len(corpus_ids)
-                        await append_corpus_ids(index_path, result.corpus_ids)
-                        if result.records:
-                            await meta_file.writelines(result.records)
-                            await meta_file.flush()
-                        await append_processed_file(processed_path, filename)
-                    log(
-                        f"[{idx}/{total}] Found {len(result.corpus_ids):,} "
-                        f"(total: {current_total:,})"
-                    )
-                except Exception as e:
-                    err(f"[{idx}/{total}] Failed {filename}: {e}")
-
-        tasks = [
-            asyncio.create_task(worker(url, filename, i))
-            for i, (url, filename) in enumerate(remaining_files, 1)
-        ]
-        await asyncio.gather(*tasks)
+    tasks = [
+        asyncio.create_task(worker(url, filename, i))
+        for i, (url, filename) in enumerate(remaining_files, 1)
+    ]
+    await asyncio.gather(*tasks)
 
     await client.aclose()
 
@@ -482,23 +489,39 @@ async def run_index(
     log(f"    Venue only: {stats.matched_venue_only:,}")
     log(f"    Both: {stats.matched_both:,}")
     log(f"  Index: {index_path}")
-    log(f"  Metadata: {metadata_path}")
+    log(f"  Metadata: {metadata_dir}")
 
 
 # === Phase 2: Full text ===
 
 
-def process_s2orc_file(path: Path, corpus_ids: set[int], desc: str) -> list[str]:
-    """Process s2orc file and return matching records."""
-    matched: list[str] = []
-    with gzip.open(path, "rt", encoding="utf-8") as f:
+@dataclass
+class FulltextResult:
+    """Result of processing an s2orc file for fulltext extraction."""
+
+    matched_ids: set[int]  # Corpus IDs that were matched
+    match_count: int
+
+
+def process_s2orc_file(
+    path: Path, corpus_ids: set[int], desc: str, output_path: Path
+) -> FulltextResult:
+    """Process s2orc file and stream matching records directly to output file."""
+    matched_ids: set[int] = set()
+    match_count = 0
+    with (
+        gzip.open(path, "rt", encoding="utf-8") as f,
+        gzip.open(output_path, "wt", encoding="utf-8") as out,
+    ):
         for line in tqdm(f, desc=desc, leave=False):
             if line.strip():
                 record = json.loads(line)
                 corpus_id = record.get("corpusid")
                 if corpus_id and corpus_id in corpus_ids:
-                    matched.append(json.dumps(record) + "\n")
-    return matched
+                    out.write(json.dumps(record) + "\n")
+                    matched_ids.add(corpus_id)
+                    match_count += 1
+    return FulltextResult(matched_ids, match_count)
 
 
 async def download_and_process_fulltext(
@@ -507,25 +530,27 @@ async def download_and_process_fulltext(
     idx: int,
     total: int,
     output_dir: Path,
+    s2orc_dir: Path,
     corpus_ids: set[int],
     client: httpx.AsyncClient,
-) -> tuple[list[str], int]:
-    """Download s2orc file and extract matching records."""
-    temp_path = output_dir / f".temp_{filename}"
+) -> tuple[FulltextResult, int]:
+    """Download s2orc file and extract matching records to output file."""
+    temp_input = output_dir / f".temp_{filename}"
+    output_path = s2orc_dir / filename  # Keep original .jsonl.gz name
     refresher = make_url_refresher(client, "s2orc_v2", filename)
     try:
         log(f"[{idx}/{total}] Downloading {filename}...")
         bytes_downloaded = await download_file(
-            url, temp_path, f"[{idx}/{total}]", url_refresher=refresher
+            url, temp_input, f"[{idx}/{total}]", url_refresher=refresher
         )
 
         log(f"[{idx}/{total}] Processing {filename}...")
-        matched = await asyncio.to_thread(
-            process_s2orc_file, temp_path, corpus_ids, f"[{idx}/{total}]"
+        result = await asyncio.to_thread(
+            process_s2orc_file, temp_input, corpus_ids, f"[{idx}/{total}]", output_path
         )
-        return matched, bytes_downloaded
+        return result, bytes_downloaded
     finally:
-        temp_path.unlink(missing_ok=True)
+        temp_input.unlink(missing_ok=True)
 
 
 async def run_fulltext(
@@ -537,7 +562,7 @@ async def run_fulltext(
 ) -> None:
     """Phase 2: Extract full paper text from s2orc_v2 dataset."""
     index_path = output_dir / "corpus_ids.txt"
-    output_path = output_dir / "s2orc_filtered.jsonl.gz"
+    s2orc_dir = output_dir / "s2orc"
     processed_path = output_dir / "processed_fulltext.txt"
     matched_ids_path = output_dir / "matched_corpus_ids.txt"
 
@@ -554,25 +579,22 @@ async def run_fulltext(
 
     if force:
         log("Force mode: backing up previous state...")
-        backup_files([output_path, processed_path, matched_ids_path])
+        backup_files([processed_path, matched_ids_path])
+        # Note: s2orc_dir files are not backed up, they're just overwritten
 
     processed_files = await load_processed_files(processed_path)
     matched_ids = load_matched_ids(matched_ids_path)
-    prior_matches = 0
+    prior_matches = len(matched_ids)
     if processed_files:
         log(f"Resuming: {len(processed_files)} files already processed")
-        # Count existing matches
-        if output_path.exists():
-            with gzip.open(output_path, "rt") as f:
-                prior_matches = sum(1 for _ in f)
-            log(f"  Existing matches: {prior_matches:,}")
+        log(f"  Existing matches: {prior_matches:,}")
 
         # Detect index growth - find IDs that haven't been searched for yet
         new_ids = corpus_ids - matched_ids
         if new_ids:
             log(f"  Index grew: {len(new_ids):,} new IDs to search for")
-            # Clear processed files to force re-scan, but keep output (append mode)
-            processed_files: set[str] = set()
+            # Clear processed files to force re-scan
+            processed_files = set[str]()
             # Use new_ids instead of corpus_ids for matching
             corpus_ids = new_ids
 
@@ -612,50 +634,44 @@ async def run_fulltext(
         log(f"  Coverage: {coverage:.1f}% of index")
         return
 
+    s2orc_dir.mkdir(parents=True, exist_ok=True)
     log(f"  Concurrent downloads: {max_concurrent}")
     log("")
 
     total = len(remaining_files)
     state_lock = asyncio.Lock()
     semaphore = asyncio.Semaphore(max_concurrent)
-    open_mode = "ab" if output_path.exists() else "wb"
 
-    with gzip.open(output_path, open_mode) as out_file:
+    async def worker(url: str, filename: str, idx: int) -> None:
+        async with semaphore:
+            try:
+                result, bytes_dl = await download_and_process_fulltext(
+                    url, filename, idx, total, output_dir, s2orc_dir, corpus_ids, client
+                )
+                async with state_lock:
+                    stats.bytes_downloaded += bytes_dl
+                    stats.files_processed += 1
+                    stats.records_matched += result.match_count
+                    await append_matched_ids(matched_ids_path, result.matched_ids)
+                    await append_processed_file(processed_path, filename)
+                log(
+                    f"[{idx}/{total}] Found {result.match_count:,} "
+                    f"(total: {stats.records_matched:,})"
+                )
+            except Exception as e:
+                err(f"[{idx}/{total}] Failed {filename}: {e}")
 
-        async def worker(url: str, filename: str, idx: int) -> None:
-            async with semaphore:
-                try:
-                    records, bytes_dl = await download_and_process_fulltext(
-                        url, filename, idx, total, output_dir, corpus_ids, client
-                    )
-                    async with state_lock:
-                        for record in records:
-                            out_file.write(record.encode())
-                        stats.bytes_downloaded += bytes_dl
-                        stats.files_processed += 1
-                        stats.records_matched += len(records)
-                        # Track matched IDs for index growth detection
-                        matched_in_file = {json.loads(r)["corpusid"] for r in records}
-                        await append_matched_ids(matched_ids_path, matched_in_file)
-                        await append_processed_file(processed_path, filename)
-                    log(
-                        f"[{idx}/{total}] Found {len(records):,} "
-                        f"(total: {stats.records_matched:,})"
-                    )
-                except Exception as e:
-                    err(f"[{idx}/{total}] Failed {filename}: {e}")
-
-        tasks = [
-            asyncio.create_task(worker(url, filename, i))
-            for i, (url, filename) in enumerate(remaining_files, 1)
-        ]
-        await asyncio.gather(*tasks)
+    tasks = [
+        asyncio.create_task(worker(url, filename, i))
+        for i, (url, filename) in enumerate(remaining_files, 1)
+    ]
+    await asyncio.gather(*tasks)
 
     await client.aclose()
 
     log(f"\nFull text extraction complete: {stats.records_matched:,} papers")
     log(f"  Files processed this run: {stats.files_processed}")
-    log(f"  Output: {output_path}")
+    log(f"  Output: {s2orc_dir}")
     coverage = (
         stats.records_matched / original_index_size * 100 if original_index_size else 0
     )
@@ -665,10 +681,15 @@ async def run_fulltext(
 # === Phase 3: Citations ===
 
 
-def process_citations_file(path: Path, corpus_ids: set[int], desc: str) -> list[str]:
-    """Process citations file and return matching links."""
-    matched: list[str] = []
-    with gzip.open(path, "rt", encoding="utf-8") as f:
+def process_citations_file(
+    path: Path, corpus_ids: set[int], desc: str, output_path: Path
+) -> int:
+    """Process citations file and write matching links to output file."""
+    match_count = 0
+    with (
+        gzip.open(path, "rt", encoding="utf-8") as f,
+        open(output_path, "w", encoding="utf-8") as out,
+    ):
         for line in tqdm(f, desc=desc, leave=False):
             if not line.strip():
                 continue
@@ -676,8 +697,9 @@ def process_citations_file(path: Path, corpus_ids: set[int], desc: str) -> list[
             citing = record.get("citingcorpusid")
             cited = record.get("citedcorpusid")
             if citing and cited and citing in corpus_ids and cited in corpus_ids:
-                matched.append(json.dumps({"citing": citing, "cited": cited}) + "\n")
-    return matched
+                out.write(json.dumps({"citing": citing, "cited": cited}) + "\n")
+                match_count += 1
+    return match_count
 
 
 async def download_and_process_citations(
@@ -686,11 +708,13 @@ async def download_and_process_citations(
     idx: int,
     total: int,
     output_dir: Path,
+    raw_dir: Path,
     corpus_ids: set[int],
     client: httpx.AsyncClient,
-) -> tuple[list[str], int]:
-    """Download citations file and extract matching links."""
+) -> tuple[int, int]:
+    """Download citations file and extract matching links to output file."""
     temp_path = output_dir / f".temp_{filename}"
+    output_path = raw_dir / _output_name(filename)
     refresher = make_url_refresher(client, "citations", filename)
     try:
         log(f"[{idx}/{total}] Downloading {filename}...")
@@ -699,30 +723,35 @@ async def download_and_process_citations(
         )
 
         log(f"[{idx}/{total}] Processing {filename}...")
-        matched = await asyncio.to_thread(
-            process_citations_file, temp_path, corpus_ids, f"[{idx}/{total}]"
+        match_count = await asyncio.to_thread(
+            process_citations_file,
+            temp_path,
+            corpus_ids,
+            f"[{idx}/{total}]",
+            output_path,
         )
-        return matched, bytes_downloaded
+        return match_count, bytes_downloaded
     finally:
         temp_path.unlink(missing_ok=True)
 
 
-async def aggregate_citations(
-    raw_path: Path,
+def aggregate_citations(
+    raw_dir: Path,
 ) -> tuple[dict[int, set[int]], dict[int, set[int]]]:
-    """Aggregate raw citation links into references and citations dicts."""
+    """Aggregate raw citation links from all files into references and citations dicts."""
     references: dict[int, set[int]] = defaultdict(set)
     citations: dict[int, set[int]] = defaultdict(set)
 
-    async with aiofiles.open(raw_path, encoding="utf-8") as f:
-        async for line in f:
-            if not line.strip():
-                continue
-            record = json.loads(line)
-            citing = record["citing"]
-            cited = record["cited"]
-            references[citing].add(cited)
-            citations[cited].add(citing)
+    for raw_file in sorted(raw_dir.glob("*.jsonl")):
+        with open(raw_file, encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                citing = record["citing"]
+                cited = record["cited"]
+                references[citing].add(cited)
+                citations[cited].add(citing)
 
     return references, citations
 
@@ -737,7 +766,7 @@ async def run_citations(
     """Phase 3: Extract citation relationships from citations dataset."""
     index_path = output_dir / "corpus_ids.txt"
     citations_dir = output_dir / "citations"
-    raw_path = citations_dir / "citations_raw.jsonl"
+    raw_dir = citations_dir / "raw"
     processed_path = output_dir / "processed_citations.txt"
 
     if not index_path.exists():
@@ -752,20 +781,14 @@ async def run_citations(
 
     if force:
         log("Force mode: backing up previous state...")
-        backup_files([raw_path, processed_path])
+        backup_files([processed_path])
+        # Note: raw_dir files are not backed up, they're just overwritten
 
     processed_files = await load_processed_files(processed_path)
-    prior_links = 0
     if processed_files:
         log(f"Resuming: {len(processed_files)} files already processed")
-        if raw_path.exists():
-            async with aiofiles.open(raw_path) as f:
-                async for _ in f:
-                    prior_links += 1
-            log(f"  Existing links: {prior_links:,}")
 
     stats = Stats()
-    stats.records_matched = prior_links
 
     client = httpx.AsyncClient()
     log("Fetching citations dataset info...")
@@ -791,7 +814,7 @@ async def run_citations(
             log(f"  ... and {len(remaining_files) - 10} more")
         return
 
-    citations_dir.mkdir(parents=True, exist_ok=True)
+    raw_dir.mkdir(parents=True, exist_ok=True)
 
     if remaining_files:
         log(f"  Concurrent downloads: {max_concurrent}")
@@ -800,48 +823,44 @@ async def run_citations(
         total = len(remaining_files)
         state_lock = asyncio.Lock()
         semaphore = asyncio.Semaphore(max_concurrent)
-        open_mode = "a" if processed_files else "w"
 
-        async with aiofiles.open(raw_path, open_mode, encoding="utf-8") as raw_file:
+        async def worker(url: str, filename: str, idx: int) -> None:
+            async with semaphore:
+                try:
+                    match_count, bytes_dl = await download_and_process_citations(
+                        url,
+                        filename,
+                        idx,
+                        total,
+                        output_dir,
+                        raw_dir,
+                        corpus_ids,
+                        client,
+                    )
+                    async with state_lock:
+                        stats.bytes_downloaded += bytes_dl
+                        stats.files_processed += 1
+                        stats.records_matched += match_count
+                        await append_processed_file(processed_path, filename)
+                    log(
+                        f"[{idx}/{total}] Found {match_count:,} "
+                        f"(total: {stats.records_matched:,})"
+                    )
+                except Exception as e:
+                    err(f"[{idx}/{total}] Failed {filename}: {e}")
 
-            async def worker(url: str, filename: str, idx: int) -> None:
-                async with semaphore:
-                    try:
-                        links, bytes_dl = await download_and_process_citations(
-                            url,
-                            filename,
-                            idx,
-                            total,
-                            output_dir,
-                            corpus_ids,
-                            client,
-                        )
-                        async with state_lock:
-                            await raw_file.writelines(links)
-                            await raw_file.flush()
-                            stats.bytes_downloaded += bytes_dl
-                            stats.files_processed += 1
-                            stats.records_matched += len(links)
-                            await append_processed_file(processed_path, filename)
-                        log(
-                            f"[{idx}/{total}] Found {len(links):,} "
-                            f"(total: {stats.records_matched:,})"
-                        )
-                    except Exception as e:
-                        err(f"[{idx}/{total}] Failed {filename}: {e}")
-
-            tasks = [
-                asyncio.create_task(worker(url, filename, i))
-                for i, (url, filename) in enumerate(remaining_files, 1)
-            ]
-            await asyncio.gather(*tasks)
+        tasks = [
+            asyncio.create_task(worker(url, filename, i))
+            for i, (url, filename) in enumerate(remaining_files, 1)
+        ]
+        await asyncio.gather(*tasks)
     else:
         log("\nAll files already processed!")
 
     await client.aclose()
 
     log("\nAggregating citation links...")
-    references, citations = await aggregate_citations(raw_path)
+    references, citations = aggregate_citations(raw_dir)
 
     refs_path = citations_dir / "references.jsonl"
     async with aiofiles.open(refs_path, "w", encoding="utf-8") as f:
@@ -878,17 +897,19 @@ def load_references(path: Path) -> dict[int, list[int]]:
     return refs
 
 
-def load_metadata_years(path: Path) -> dict[int, int]:
-    """Load paper years from metadata JSONL file."""
+def load_metadata_years(metadata_dir: Path) -> dict[int, int]:
+    """Load paper years from metadata JSONL files in directory."""
     years: dict[int, int] = {}
-    with open(path, encoding="utf-8") as f:
-        for line in tqdm(f, desc="Loading metadata", leave=False):
-            if line.strip():
-                record = json.loads(line)
-                corpus_id = record.get("corpusid")
-                year = record.get("year")
-                if corpus_id and year:
-                    years[corpus_id] = year
+    files = sorted(metadata_dir.glob("*.jsonl"))
+    for file_path in tqdm(files, desc="Loading metadata files", leave=False):
+        with open(file_path, encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    record = json.loads(line)
+                    corpus_id = record.get("corpusid")
+                    year = record.get("year")
+                    if corpus_id and year:
+                        years[corpus_id] = year
     return years
 
 
@@ -966,13 +987,13 @@ def run_splits(
     test_year: int = 2025,
 ) -> None:
     """Phase 5: Create train/dev/test splits by publication year."""
-    metadata_path = output_dir / "papers" / "metadata.jsonl"
+    metadata_dir = output_dir / "papers"
 
-    if not metadata_path.exists():
-        die(f"Metadata not found: {metadata_path}\nRun 'index' phase first.")
+    if not metadata_dir.exists() or not any(metadata_dir.glob("*.jsonl")):
+        die(f"Metadata not found: {metadata_dir}\nRun 'index' phase first.")
 
     log("Loading metadata...")
-    years = load_metadata_years(metadata_path)
+    years = load_metadata_years(metadata_dir)
     log(f"  {len(years):,} papers with year info")
     log("")
 
@@ -1259,9 +1280,9 @@ def cmd_stats(
 ) -> None:
     """Show statistics about the filtered dataset."""
     index_path = output_dir / "corpus_ids.txt"
-    output_path = output_dir / "s2orc_filtered.jsonl.gz"
     index_stats_path = output_dir / "index_stats.json"
-    metadata_path = output_dir / "papers" / "metadata.jsonl"
+    metadata_dir = output_dir / "papers"
+    s2orc_dir = output_dir / "s2orc"
     citations_dir = output_dir / "citations"
 
     log("=== Dataset Statistics ===")
@@ -1287,60 +1308,61 @@ def cmd_stats(
         log("")
 
     # Metadata stats
-    if metadata_path.exists():
-        size_mb = metadata_path.stat().st_size / (1024 * 1024)
-        log(f"Metadata: {metadata_path}")
-        log(f"  Size: {size_mb:.1f} MB")
-        log("  Counting records...")
-        count = 0
-        with open(metadata_path) as f:
-            for _ in f:
-                count += 1
-        log(f"  Records: {count:,}")
-        log("")
+    if metadata_dir.exists():
+        files = list(metadata_dir.glob("*.jsonl"))
+        if files:
+            total_size = sum(f.stat().st_size for f in files)
+            size_mb = total_size / (1024 * 1024)
+            log(f"Metadata: {metadata_dir}/")
+            log(f"  Files: {len(files)}")
+            log(f"  Total size: {size_mb:.1f} MB")
+            log("")
 
     # Fulltext stats
-    if output_path.exists():
-        size_mb = output_path.stat().st_size / (1024 * 1024)
-        log(f"Full text: {output_path}")
-        log(f"  Size: {size_mb:.1f} MB")
-        log("  Counting records...")
-        count = 0
-        with gzip.open(output_path, "rt") as f:
-            for _ in f:
-                count += 1
-        log(f"  Records: {count:,}")
-        if index_path.exists():
-            corpus_ids = load_corpus_ids(index_path)
-            coverage = count / len(corpus_ids) * 100 if corpus_ids else 0
-            log(f"  Coverage: {coverage:.1f}% of index")
-        log("")
+    if s2orc_dir.exists():
+        files = list(s2orc_dir.glob("*.jsonl.gz"))
+        if files:
+            total_size = sum(f.stat().st_size for f in files)
+            size_mb = total_size / (1024 * 1024)
+            log(f"Full text: {s2orc_dir}/")
+            log(f"  Files: {len(files)}")
+            log(f"  Total size: {size_mb:.1f} MB")
+            # Count records from matched_corpus_ids.txt (faster than reading all gzip files)
+            matched_ids_path = output_dir / "matched_corpus_ids.txt"
+            if matched_ids_path.exists():
+                matched_ids = load_matched_ids(matched_ids_path)
+                log(f"  Records: {len(matched_ids):,}")
+                if index_path.exists():
+                    corpus_ids = load_corpus_ids(index_path)
+                    coverage = (
+                        len(matched_ids) / len(corpus_ids) * 100 if corpus_ids else 0
+                    )
+                    log(f"  Coverage: {coverage:.1f}% of index")
+            log("")
 
     # Citations stats
     refs_path = citations_dir / "references.jsonl"
     cites_path = citations_dir / "citations.jsonl"
-    raw_path = citations_dir / "citations_raw.jsonl"
+    raw_dir = citations_dir / "raw"
 
     if refs_path.exists() or cites_path.exists():
         log("Citations:")
         if refs_path.exists():
-            count = 0
             with open(refs_path) as f:
-                for _ in f:
-                    count += 1
+                count = sum(1 for _ in f)
             log(f"  Papers with references: {count:,}")
         if cites_path.exists():
-            count = 0
             with open(cites_path) as f:
-                for _ in f:
-                    count += 1
+                count = sum(1 for _ in f)
             log(f"  Papers with citations: {count:,}")
-        if raw_path.exists():
-            count = 0
-            with open(raw_path) as f:
-                for _ in f:
-                    count += 1
-            log(f"  Total citation links: {count:,}")
+        if raw_dir.exists():
+            files = list(raw_dir.glob("*.jsonl"))
+            if files:
+                total_links = 0
+                for raw_file in files:
+                    with open(raw_file) as f:
+                        total_links += sum(1 for _ in f)
+                log(f"  Total citation links: {total_links:,}")
 
 
 if __name__ == "__main__":
