@@ -32,7 +32,6 @@ sudo apt-get install -y \
 	psmisc \
 	htop \
 	cloc \
-	fzf \
 	trash-cli
 
 echo "==> Setting up PATH..."

@@ -2,9 +2,6 @@ FROM ubuntu:25.10
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Allow fzf docs (vim plugin) despite docker image excludes
-RUN echo 'path-include=/usr/share/doc/fzf/*' > /etc/dpkg/dpkg.cfg.d/fzf
-
 # Add Fish 4 PPA and install core packages
 RUN apt-get update && apt-get install -y software-properties-common && \
     apt-add-repository -y ppa:fish-shell/release-4 && \
@@ -24,7 +21,6 @@ RUN apt-get update && apt-get install -y software-properties-common && \
     psmisc \
     htop \
     cloc \
-    fzf \
     trash-cli \
     && rm -rf /var/lib/apt/lists/*
 
