@@ -1,0 +1,16 @@
+git
+curl
+sudo
+fish
+build-essential
+python3-dev
+ruby
+kitty-terminfo
+zstd
+ca-certificates
+unzip
+lsof
+psmisc
+htop
+cloc
+trash-cli

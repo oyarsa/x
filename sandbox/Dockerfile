@@ -3,26 +3,11 @@ FROM ubuntu:25.10
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Add Fish 4 PPA and install core packages
+COPY packages.txt /tmp/packages.txt
 RUN apt-get update && apt-get install -y software-properties-common && \
     apt-add-repository -y ppa:fish-shell/release-4 && \
-    apt-get update && apt-get install -y \
-    git \
-    curl \
-    sudo \
-    fish \
-    build-essential \
-    python3-dev \
-    ruby \
-    kitty-terminfo \
-    zstd \
-    ca-certificates \
-    unzip \
-    lsof \
-    psmisc \
-    htop \
-    cloc \
-    trash-cli \
-    && rm -rf /var/lib/apt/lists/*
+    apt-get update && apt-get install -y $(cat /tmp/packages.txt) && \
+    rm -rf /var/lib/apt/lists/* /tmp/packages.txt
 
 # Create non-root user with sudo access (UID matches host user)
 RUN useradd -m -s /usr/bin/fish -u $UID dev && \

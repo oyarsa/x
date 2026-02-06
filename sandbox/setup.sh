@@ -16,23 +16,7 @@ sudo apt-add-repository -y ppa:fish-shell/release-4
 
 echo "==> Installing system packages..."
 sudo apt-get update
-sudo apt-get install -y \
-	git \
-	curl \
-	sudo \
-	fish \
-	build-essential \
-	python3-dev \
-	ruby \
-	kitty-terminfo \
-	zstd \
-	ca-certificates \
-	unzip \
-	lsof \
-	psmisc \
-	htop \
-	cloc \
-	trash-cli
+sudo apt-get install -y $(cat "$SCRIPT_DIR/packages.txt")
 
 echo "==> Setting up PATH..."
 export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.cargo/bin:$PATH"
