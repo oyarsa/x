@@ -135,8 +135,20 @@ def pick-ssh-key []: nothing -> string {
 }
 
 # Create a server from a snapshot image.
-def create-server [name: string, type: string, image_id: int, location: string, ssh_key: string] {
-    mut args = [server create --name $name --type $type --image ($image_id | into string) --location $location]
+def create-server [
+    name: string
+    type: string
+    image_id: int
+    location: string
+    ssh_key: string
+] {
+    mut args = [
+        server create
+            --name $name
+            --type $type
+            --image ($image_id | into string)
+            --location $location
+    ]
     if ($ssh_key | is-not-empty) {
         $args = ($args | append [--ssh-key $ssh_key])
     }
@@ -368,7 +380,12 @@ def "main clean" [
 # Check that hcloud is available.
 def check-deps [] {
     if (which hcloud | is-empty) {
-        error make { msg: "Error: 'hcloud' CLI is required but not installed.\nInstall it from: https://github.com/hetznercloud/cli" }
+        error make {
+            msg: ([
+                "Error: 'hcloud' CLI is required but not installed."
+                "Install it from: https://github.com/hetznercloud/cli"
+            ] | str join "\n")
+        }
     }
 }
 
