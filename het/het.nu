@@ -13,8 +13,7 @@ const SCRIPT_VERSION = "0.3.0"
 const SCRIPT_DATE = "2025-02-06"
 
 def die [msg: string] {
-    print $"(ansi red_bold)✗ ($msg)(ansi reset)"
-    exit 1
+    error make { msg: $"(ansi red_bold)✗ ($msg)(ansi reset)" }
 }
 
 def success [msg: string] {
@@ -29,30 +28,30 @@ def bold [msg: string] {
     print $"(ansi attr_bold)($msg)(ansi reset)"
 }
 
+# Run hcloud with -o json and parse the result.
+def --wrapped hcloud-json [...args: string]: nothing -> any {
+    ^hcloud ...$args -o json | from json
+}
+
 # Fetch all servers as structured data.
 def get-servers []: nothing -> table {
-    hcloud server list -o json | from json
+    hcloud-json server list
 }
 
 # Fetch all snapshots as structured data.
 def get-snapshots []: nothing -> table {
-    hcloud image list --type snapshot -o json | from json
+    hcloud-json image list --type snapshot
 }
 
 # Select a server by name or interactively.
 def select-server [name?: string]: nothing -> string {
-    if $name != null {
-        let found = (try {
-            hcloud server describe $name -o json | from json | get name
-        } catch {
-            null
-        })
-        if $found == null { die $"Server '($name)' not found." }
-        return $name
-    }
-
     let servers = get-servers | get name
     if ($servers | is-empty) { die "No servers found." }
+
+    if $name != null {
+        if $name not-in $servers { die $"Server '($name)' not found." }
+        return $name
+    }
 
     $servers | input list --fuzzy "Select server:"
 }
@@ -69,17 +68,79 @@ def select-snapshot [name?: string]: nothing -> string {
 
     if ($snapshots | is-empty) { die "No snapshots found." }
 
-    let names = $snapshots | each {|s|
+    $snapshots | each {|s|
         if ($s.description | is-not-empty) { $s.description } else { $"id:($s.id)" }
-    }
-
-    $names | input list --fuzzy "Select snapshot:"
+    } | input list --fuzzy "Select snapshot:"
 }
 
 # Prompt for yes/no confirmation. Returns true if confirmed.
 def confirm [prompt: string]: nothing -> bool {
-    let choice = (["Yes" "No"] | input list $"($prompt)")
-    $choice == "Yes"
+    (["Yes" "No"] | input list $prompt) == "Yes"
+}
+
+# Interactively pick a server type, with the default moved to the top.
+def pick-server-type [default_type: string]: nothing -> string {
+    let types = (hcloud-json server-type list
+        | where deprecated == false
+        | select name cores memory disk description)
+
+    let display = $types | each {|t|
+        let label = [
+            ($t.name | fill -w 12),
+            ($t.cores | fill -a right -w 5),
+            $"($t.memory | fill -a right -w 6) GB",
+            $"($t.disk | fill -a right -w 6) GB",
+            ($t.description)
+        ] | str join
+        { value: $t.name, label: $label }
+    }
+
+    let ordered = if ($default_type | is-not-empty) {
+        let top = $display | where value == $default_type
+        let rest = $display | where value != $default_type
+        $top | append $rest
+    } else {
+        $display
+    }
+
+    let header = $"NAME         CORES MEMORY     DISK        DESCRIPTION  \(was: ($default_type))"
+    let selected_label = $ordered | get label | input list --fuzzy $header
+    if ($selected_label | is-empty) { die "Server type is required." }
+
+    $selected_label | split words | first
+}
+
+# Interactively pick a location, with the default moved to the top.
+def pick-location [default_location: string]: nothing -> string {
+    let locations = hcloud-json location list | get name
+
+    let ordered = if ($default_location | is-not-empty) {
+        let top = $locations | where $it == $default_location
+        let rest = $locations | where $it != $default_location
+        $top | append $rest
+    } else {
+        $locations
+    }
+
+    $ordered | input list $"Location \(was: ($default_location)):"
+}
+
+# Interactively pick an SSH key, or return empty string.
+def pick-ssh-key []: nothing -> string {
+    let keys = hcloud-json ssh-key list | get name
+    if ($keys | is-empty) { return "" }
+
+    let chosen = ["(none)"] | append $keys | input list "SSH key:"
+    if $chosen == "(none)" { "" } else { $chosen }
+}
+
+# Create a server from a snapshot image.
+def create-server [name: string, type: string, image_id: int, location: string, ssh_key: string] {
+    mut args = [server create --name $name --type $type --image ($image_id | into string) --location $location]
+    if ($ssh_key | is-not-empty) {
+        $args = ($args | append [--ssh-key $ssh_key])
+    }
+    ^hcloud ...$args
 }
 
 # Create a snapshot of a server with metadata labels.
@@ -91,7 +152,7 @@ def "main snapshot" [
     let server = select-server $server
     if ($server | is-empty) { return }
 
-    let server_json = hcloud server describe $server -o json | from json
+    let server_json = hcloud-json server describe $server
     let server_type = $server_json.server_type.name
     let location = $server_json.datacenter.location.name
 
@@ -100,7 +161,7 @@ def "main snapshot" [
 
     info $"Creating snapshot '($snapshot_name)'..."
     try {
-        (hcloud server create-image
+        (^hcloud server create-image
             --type snapshot
             --description $snapshot_name
             --label $"original-server=($server)"
@@ -129,8 +190,7 @@ def "main restore" [
     let snap = select-snapshot $snapshot
     if ($snap | is-empty) { return }
 
-    let snapshots = get-snapshots
-    let snap_row = $snapshots | where description == $snap | first
+    let snap_row = get-snapshots | where description == $snap | first
     let snap_id = $snap_row.id
     let default_server = $snap_row.labels | get -o "original-server" | default ""
     let default_type = $snap_row.labels | get -o "server-type" | default ""
@@ -151,96 +211,27 @@ def "main restore" [
     if ($server_name | is-empty) { die "Server name is required." }
 
     let exists = try {
-        hcloud server describe $server_name -o json | ignore; true
+        hcloud-json server describe $server_name | ignore; true
     } catch {
         false
     }
     if $exists { die $"Server '($server_name)' already exists." }
 
     # Server type
-    let server_type = if $type != null { $type } else {
-        let types = (hcloud server-type list -o json
-            | from json
-            | where deprecated == false
-            | select name cores memory disk description)
-
-        # Format a display table and reorder so default is first
-        let display = $types | each {|t|
-            let label = [
-                ($t.name | fill -w 12),
-                ($t.cores | fill -a right -w 5),
-                $"($t.memory | fill -a right -w 6) GB",
-                $"($t.disk | fill -a right -w 6) GB",
-                ($t.description)
-            ] | str join
-            { value: $t.name, label: $label }
-        }
-
-        # Move default to top
-        let ordered = if ($default_type | is-not-empty) {
-            let top = $display | where value == $default_type
-            let rest = $display | where value != $default_type
-            $top | append $rest
-        } else {
-            $display
-        }
-
-        let header = $"NAME         CORES MEMORY     DISK        DESCRIPTION  \(was: ($default_type))"
-        let labels = $ordered | get label
-        let selected_label = $labels | input list --fuzzy $header
-        if ($selected_label | is-empty) { die "Server type is required." }
-
-        # Extract the type name (first whitespace-delimited token)
-        $selected_label | split words | first
-    }
+    let server_type = if $type != null { $type } else { pick-server-type $default_type }
     if ($server_type | is-empty) { die "Server type is required." }
 
     # Location
-    let location_val = if $location != null { $location } else {
-        let locations = hcloud location list -o json | from json | get name
-
-        # Move default to top
-        let ordered = if ($default_location | is-not-empty) {
-            let top = $locations | where $it == $default_location
-            let rest = $locations | where $it != $default_location
-            $top | append $rest
-        } else {
-            $locations
-        }
-
-        $ordered | input list $"Location \(was: ($default_location)):"
-    }
+    let location_val = if $location != null { $location } else { pick-location $default_location }
     if ($location_val | is-empty) { die "Location is required." }
 
     # SSH key
-    let ssh_key_val = if $ssh_key != null { $ssh_key } else {
-        let keys = hcloud ssh-key list -o json | from json | get name
-        if ($keys | is-not-empty) {
-            let options = ["(none)"] | append $keys
-            let chosen = $options | input list "SSH key:"
-            if $chosen == "(none)" { "" } else { $chosen }
-        } else {
-            ""
-        }
-    }
+    let ssh_key_val = if $ssh_key != null { $ssh_key } else { pick-ssh-key }
 
     # Create server
     info $"Creating server '($server_name)'..."
     try {
-        if ($ssh_key_val | is-not-empty) {
-            (hcloud server create
-                --name $server_name
-                --type $server_type
-                --image ($snap_id | into string)
-                --location $location_val
-                --ssh-key $ssh_key_val)
-        } else {
-            (hcloud server create
-                --name $server_name
-                --type $server_type
-                --image ($snap_id | into string)
-                --location $location_val)
-        }
+        create-server $server_name $server_type $snap_id $location_val $ssh_key_val
     } catch {
         die "Failed to create server"
     }
@@ -250,8 +241,7 @@ def "main restore" [
     info $"Location: ($location_val)"
     if ($ssh_key_val | is-not-empty) { info $"SSH key: ($ssh_key_val)" }
 
-    let ipv4 = (hcloud server describe $server_name -o json
-        | from json
+    let ipv4 = (hcloud-json server describe $server_name
         | get -o public_net.ipv4.ip
         | default "")
     if ($ipv4 | is-not-empty) { info $"IPv4: ($ipv4)" }
@@ -269,7 +259,7 @@ def "main destroy" [
 
     if not $no_snapshot {
         if (confirm $"Create snapshot of '($server)' before destroying?") {
-            het snapshot $server
+            main snapshot $server
             print ""
         }
     }
@@ -281,7 +271,7 @@ def "main destroy" [
 
     info $"Destroying '($server)'..."
     try {
-        hcloud server delete $server
+        ^hcloud server delete $server
     } catch {
         die "Failed to destroy server"
     }
@@ -323,14 +313,14 @@ def "main clean" [
     let all_snaps = get-snapshots
 
     let selected = if ($snapshots | is-not-empty) {
-        # Validate each provided snapshot name
-        for name in $snapshots {
-            let found = $all_snaps | where description == $name
-            if ($found | is-empty) { die $"Snapshot '($name)' not found." }
+        let missing = $snapshots | where {
+            |name| $all_snaps | where description == $name | is-empty
+        }
+        if ($missing | is-not-empty) {
+            die $"Snapshot\(s) not found: ($missing | str join ', ')"
         }
         $snapshots
     } else {
-        # Interactive multiselect
         if ($all_snaps | is-empty) { die "No snapshots found." }
 
         let names = $all_snaps | each {|s|
@@ -366,7 +356,7 @@ def "main clean" [
 
         info $"Deleting snapshot '($snap_name)'..."
         try {
-            hcloud image delete ($snap_id | into string)
+            ^hcloud image delete ($snap_id | into string)
         } catch {
             die $"Failed to delete snapshot '($snap_name)'"
         }
@@ -378,9 +368,7 @@ def "main clean" [
 # Check that hcloud is available.
 def check-deps [] {
     if (which hcloud | is-empty) {
-        print -e "Error: 'hcloud' CLI is required but not installed."
-        print -e "Install it from: https://github.com/hetznercloud/cli"
-        exit 1
+        error make { msg: "Error: 'hcloud' CLI is required but not installed.\nInstall it from: https://github.com/hetznercloud/cli" }
     }
 }
 
