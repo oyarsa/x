@@ -18,6 +18,9 @@ echo "==> Installing system packages..."
 sudo apt-get update
 sudo apt-get install -y $(cat "$SCRIPT_DIR/packages.txt")
 
+echo "==> Installing NuShell..."
+sudo bash "$SCRIPT_DIR/install-nushell.sh"
+
 echo "==> Setting up PATH..."
 export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.cargo/bin:$PATH"
 

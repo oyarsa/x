@@ -8,6 +8,7 @@ ruby
 kitty-terminfo
 zstd
 ca-certificates
+gnupg
 unzip
 lsof
 psmisc

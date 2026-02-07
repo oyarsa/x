@@ -9,6 +9,10 @@ RUN apt-get update && apt-get install -y software-properties-common && \
     apt-get update && apt-get install -y $(cat /tmp/packages.txt) && \
     rm -rf /var/lib/apt/lists/* /tmp/packages.txt
 
+# Install NuShell
+COPY install-nushell.sh /tmp/install-nushell.sh
+RUN bash /tmp/install-nushell.sh && rm -f /tmp/install-nushell.sh
+
 # Create non-root user with sudo access (UID matches host user)
 RUN useradd -m -s /usr/bin/fish -u $UID dev && \
     echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
