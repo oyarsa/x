@@ -18,6 +18,10 @@ echo "==> Installing system packages..."
 sudo apt-get update
 sudo apt-get install -y $(cat "$SCRIPT_DIR/packages.txt")
 
+echo "==> Installing Docker..."
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker "$USER"
+
 echo "==> Installing NuShell..."
 sudo bash "$SCRIPT_DIR/install-nushell.sh"
 
