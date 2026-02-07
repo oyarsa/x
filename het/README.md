@@ -17,18 +17,16 @@ spin up temporary servers, snapshot them when done, and restore them later.
 
 ## Requirements
 
-- [fish shell](https://fishshell.com/)
+- [nushell](https://nushell.sh/)
 - [hcloud](https://github.com/hetznercloud/cli) - Hetzner Cloud CLI (must be configured
   with your API token)
-- [gum](https://github.com/charmbracelet/gum) - Terminal UI components
-- [jq](https://jqlang.github.io/jq/) - JSON processor
 
 ## Installation
 
-Copy `het.fish` somewhere in your PATH and make it executable:
+Symlink `het.nu` somewhere in your PATH:
 
 ```sh
-$ cp het.fish ~/.local/bin/het chmod +x ~/.local/bin/het
+$ ln -s het.nu ~/.local/bin/het
 ```
 
 ## Usage
