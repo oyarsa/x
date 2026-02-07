@@ -7,20 +7,10 @@
 # them later. Snapshots store metadata (original server name, type, location)
 # so restores can use the same configuration.
 #
-# Commands:
-#   het snapshot <server?>   - Create a snapshot with metadata labels
-#   het restore <snapshot?>  - Create a new server from a snapshot
-#   het destroy <server?>    - Destroy a server (optionally snapshot first)
-#   het clean <...snapshots> - Delete one or more snapshots
-#   het list                 - List all snapshots with metadata
-#
-# All commands support interactive selection if arguments are omitted.
-# Dependencies: hcloud CLI only (no gum, no jq).
+# Dependencies: hcloud CLI.
 
 const SCRIPT_VERSION = "0.3.0"
 const SCRIPT_DATE = "2025-02-06"
-
-# Style helpers using ANSI escapes
 
 def die [msg: string] {
     print $"(ansi red_bold)✗ ($msg)(ansi reset)"
@@ -40,17 +30,17 @@ def bold [msg: string] {
 }
 
 # Fetch all servers as structured data.
-def get-servers [] {
+def get-servers []: nothing -> table {
     hcloud server list -o json | from json
 }
 
 # Fetch all snapshots as structured data.
-def get-snapshots [] {
+def get-snapshots []: nothing -> table {
     hcloud image list --type snapshot -o json | from json
 }
 
 # Select a server by name or interactively.
-def select-server [name?: string] {
+def select-server [name?: string]: nothing -> string {
     if $name != null {
         let found = (try {
             hcloud server describe $name -o json | from json | get name
@@ -68,7 +58,7 @@ def select-server [name?: string] {
 }
 
 # Select a snapshot by name or interactively.
-def select-snapshot [name?: string] {
+def select-snapshot [name?: string]: nothing -> string {
     let snapshots = get-snapshots
 
     if $name != null {
@@ -87,7 +77,7 @@ def select-snapshot [name?: string] {
 }
 
 # Prompt for yes/no confirmation. Returns true if confirmed.
-def confirm [prompt: string] {
+def confirm [prompt: string]: nothing -> bool {
     let choice = (["Yes" "No"] | input list $"($prompt)")
     $choice == "Yes"
 }
