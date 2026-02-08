@@ -31,7 +31,7 @@ def "main stop" [
 
 # List running tunnels
 def "main ls" [] {
-    glob $"(socket-dir)/*.sock" | each { |sock|
+    let tunnels = (glob $"(socket-dir)/*.sock" | each { |sock|
         let host = $sock | path parse | get stem
         let check = ssh -S $sock -O check $host | complete
 
@@ -48,7 +48,13 @@ def "main ls" [] {
             rm -f $sock (get-ports-file $host)
             null
         }
-    } | compact
+    } | compact)
+
+    if ($tunnels | is-empty) {
+        print "No tunnels active."
+    } else {
+        $tunnels
+    }
 }
 
 # Forward ports over SSH with optional background mode and clean stop
