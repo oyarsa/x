@@ -55,6 +55,7 @@ def "main ls" [] {
 def "main start" [
     host: string          # SSH host or alias
     ...ports: int         # Ports to forward
+    --expose              # Bind to 0.0.0.0 so others on your network can connect
 ] {
     let socket = (get-socket $host)
 
@@ -62,13 +63,15 @@ def "main start" [
         error make { msg: "At least one port is required" }
     }
 
-    let forwards = $ports | each { |p| [-L $"($p):localhost:($p)"] } | flatten
+    let bind = if $expose { "0.0.0.0" } else { "localhost" }
+    let forwards = $ports | each { |p| [-L $"($bind):($p):localhost:($p)"] } | flatten
 
     # Save port info for ls
     let ports_str = $ports | str join ", "
     $ports_str | save -f (get-ports-file $host)
 
-    print $"Forwarding ports ($ports_str) to ($host)"
+    let expose_note = if $expose { " (exposed to network)" } else { "" }
+    print $"Forwarding ports ($ports_str) to ($host)($expose_note)"
     ssh ...$forwards -S $socket -M $host -N -f
 
     print "Running in the background. Stop with:"
