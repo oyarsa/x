@@ -13,7 +13,8 @@ const SCRIPT_VERSION = "0.3.0"
 const SCRIPT_DATE = "2025-02-06"
 
 def die [msg: string] {
-    error make { msg: $"(ansi red_bold)✗ ($msg)(ansi reset)" }
+    print -e $"(ansi red_bold)✗ ($msg)(ansi reset)"
+    exit 1
 }
 
 def success [msg: string] {
@@ -30,7 +31,12 @@ def bold [msg: string] {
 
 # Run hcloud with -o json and parse the result.
 def --wrapped hcloud-json [...args: string]: nothing -> any {
-    ^hcloud ...$args -o json | from json
+    let result = (^hcloud ...$args -o json | complete)
+    if $result.exit_code != 0 {
+        let stderr = ($result.stderr | str trim)
+        die $"hcloud internal error:\n($stderr)"
+    }
+    $result.stdout | from json
 }
 
 # Fetch all servers as structured data.
