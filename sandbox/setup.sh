@@ -60,11 +60,11 @@ npx playwright install --with-deps chromium
 claude mcp remove --scope user playwright 2>/dev/null || true
 claude mcp add --scope user playwright -- \
 	npx @playwright/mcp@latest \
-	--headless --no-sandbox --isolated --browser chromium
+	--headless --no-chromium-sandbox --isolated --browser chromium
 
 codex mcp add playwright -- \
 	npx @playwright/mcp@latest \
-	--headless --no-sandbox --isolated --browser chromium
+	--headless --no-chromium-sandbox --isolated --browser chromium
 
 echo "==> Installing Fisher and plugins..."
 fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher"
