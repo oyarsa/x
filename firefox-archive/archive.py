@@ -96,9 +96,7 @@ async def _archive_one(
                 else:
                     err = stderr.decode(errors="replace").strip()
                     logger.warning("FAIL %s: %s", url, err or f"exit {proc.returncode}")
-                    return ArchiveResult(
-                        url=url, output=None, success=False, error=err
-                    )
+                    return ArchiveResult(url=url, output=None, success=False, error=err)
 
             except TimeoutError:
                 logger.debug(
@@ -110,9 +108,7 @@ async def _archive_one(
                 continue
             except Exception as e:
                 logger.warning("ERROR %s: %s", url, e)
-                return ArchiveResult(
-                    url=url, output=None, success=False, error=str(e)
-                )
+                return ArchiveResult(url=url, output=None, success=False, error=str(e))
             finally:
                 if proc is not None and proc.returncode is None:
                     proc.kill()
@@ -156,11 +152,13 @@ async def archive_urls(urls: list[str], config: ArchiveConfig) -> list[ArchiveRe
         domain_counts[_domain(url)] += 1
     top = sorted(domain_counts.items(), key=lambda x: -x[1])[:10]
 
+    top_str = "\n".join(f"  {n:>4}  {d}" for d, n in top)
     logger.info(
-        "%d pending across %d domains. Top: %s",
+        "%d pending across %d domains. Top %d:\n%s",
         len(pending),
         len(domain_counts),
-        ", ".join(f"{d}({n})" for d, n in top),
+        len(top),
+        top_str,
     )
 
     tasks = [_archive_one(url, config, global_sem, domain_sems) for url in pending]
@@ -205,7 +203,9 @@ if __name__ == "__main__":
         "-d", "--domain-jobs", type=int, default=2, help="Per-domain concurrency"
     )
     parser.add_argument("-t", "--timeout", type=int, default=30)
-    parser.add_argument("--retries", type=int, default=2, help="Max retries for timeouts")
+    parser.add_argument(
+        "--retries", type=int, default=2, help="Max retries for timeouts"
+    )
     parser.add_argument(
         "--retry-backoff", type=float, default=5.0, help="Initial backoff in seconds"
     )
