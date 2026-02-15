@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import contextlib
 import hashlib
 import logging
 import random
@@ -92,13 +93,15 @@ async def _archive_one(
 
         except TimeoutError:
             logger.warning("TIMEOUT %s", url)
-            if proc:
-                proc.kill()
-
             return ArchiveResult(url=url, output=None, success=False, error="timeout")
         except Exception as e:
             logger.warning("ERROR %s: %s", url, e)
             return ArchiveResult(url=url, output=None, success=False, error=str(e))
+        finally:
+            if proc is not None and proc.returncode is None:
+                proc.kill()
+                with contextlib.suppress(BaseException):
+                    await proc.wait()
 
 
 async def archive_urls(urls: list[str], config: ArchiveConfig) -> list[ArchiveResult]:
