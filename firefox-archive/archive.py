@@ -22,6 +22,8 @@ class ArchiveConfig:
     global_concurrency: int = 20
     per_domain_concurrency: int = 2
     timeout: int = 30
+    max_retries: int = 2
+    retry_backoff: float = 5.0
     monolith_extra_args: tuple[str, ...] = ()
 
 
@@ -58,50 +60,66 @@ async def _archive_one(
     output = _output_path(url, config.output_dir)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    async with global_sem, domain_sem:
-        cmd = [
-            "monolith",
-            url,
-            "-o",
-            str(output),
-            "-e",  # ignore network errors
-            "-q",  # quiet
-            "-t",
-            str(config.timeout),
-            *config.monolith_extra_args,
-        ]
+    cmd = [
+        "monolith",
+        url,
+        "-o",
+        str(output),
+        "-e",  # ignore network errors
+        "-q",  # quiet
+        "-t",
+        str(config.timeout),
+        *config.monolith_extra_args,
+    ]
 
-        proc = None
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=config.timeout + 10,
-            )
+    for attempt in range(1 + config.max_retries):
+        if attempt > 0:
+            delay = config.retry_backoff * (2 ** (attempt - 1))
+            await asyncio.sleep(delay)
 
-            if proc.returncode == 0 and output.exists():
-                logger.debug("OK %s", url)
-                return ArchiveResult(url=url, output=output, success=True)
-            else:
-                err = stderr.decode(errors="replace").strip()
-                logger.warning("FAIL %s: %s", url, err or f"exit {proc.returncode}")
-                return ArchiveResult(url=url, output=None, success=False, error=err)
+        async with global_sem, domain_sem:
+            proc = None
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=config.timeout + 10,
+                )
 
-        except TimeoutError:
-            logger.warning("TIMEOUT %s", url)
-            return ArchiveResult(url=url, output=None, success=False, error="timeout")
-        except Exception as e:
-            logger.warning("ERROR %s: %s", url, e)
-            return ArchiveResult(url=url, output=None, success=False, error=str(e))
-        finally:
-            if proc is not None and proc.returncode is None:
-                proc.kill()
-                with contextlib.suppress(BaseException):
-                    await proc.wait()
+                if proc.returncode == 0 and output.exists():
+                    logger.debug("OK %s", url)
+                    return ArchiveResult(url=url, output=output, success=True)
+                else:
+                    err = stderr.decode(errors="replace").strip()
+                    logger.warning("FAIL %s: %s", url, err or f"exit {proc.returncode}")
+                    return ArchiveResult(
+                        url=url, output=None, success=False, error=err
+                    )
+
+            except TimeoutError:
+                logger.debug(
+                    "TIMEOUT %s (attempt %d/%d)",
+                    url,
+                    attempt + 1,
+                    1 + config.max_retries,
+                )
+                continue
+            except Exception as e:
+                logger.warning("ERROR %s: %s", url, e)
+                return ArchiveResult(
+                    url=url, output=None, success=False, error=str(e)
+                )
+            finally:
+                if proc is not None and proc.returncode is None:
+                    proc.kill()
+                    with contextlib.suppress(BaseException):
+                        await proc.wait()
+
+    return ArchiveResult(url=url, output=None, success=False, error="timeout")
 
 
 async def archive_urls(urls: list[str], config: ArchiveConfig) -> list[ArchiveResult]:
@@ -128,6 +146,8 @@ async def archive_urls(urls: list[str], config: ArchiveConfig) -> list[ArchiveRe
     tasks = [_archive_one(url, config, global_sem, domain_sems) for url in urls]
     results: list[ArchiveResult] = []
     succeeded = 0
+    failed = 0
+    timed_out = 0
 
     with tqdm(total=len(tasks), unit="pg", dynamic_ncols=True) as bar:
         for coro in asyncio.as_completed(tasks):
@@ -135,13 +155,19 @@ async def archive_urls(urls: list[str], config: ArchiveConfig) -> list[ArchiveRe
             results.append(result)
             if result.success:
                 succeeded += 1
+            elif result.error == "timeout":
+                timed_out += 1
+            else:
+                failed += 1
 
             bar.set_description(
-                f"ok={succeeded} fail={len(results) - succeeded}", refresh=False
+                f"ok={succeeded} fail={failed} timeout={timed_out}", refresh=False
             )
             bar.update()
 
-    logger.info("Done: %d/%d succeeded", succeeded, len(results))
+    logger.info(
+        "Done: %d/%d succeeded, %d timed out", succeeded, len(results), timed_out
+    )
     return results
 
 
@@ -159,6 +185,10 @@ if __name__ == "__main__":
         "-d", "--domain-jobs", type=int, default=2, help="Per-domain concurrency"
     )
     parser.add_argument("-t", "--timeout", type=int, default=30)
+    parser.add_argument("--retries", type=int, default=2, help="Max retries for timeouts")
+    parser.add_argument(
+        "--retry-backoff", type=float, default=5.0, help="Initial backoff in seconds"
+    )
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -176,6 +206,8 @@ if __name__ == "__main__":
         global_concurrency=args.jobs,
         per_domain_concurrency=args.domain_jobs,
         timeout=args.timeout,
+        max_retries=args.retries,
+        retry_backoff=args.retry_backoff,
     )
 
     results = asyncio.run(archive_urls(urls, config))
