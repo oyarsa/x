@@ -125,25 +125,45 @@ async def _archive_one(
 async def archive_urls(urls: list[str], config: ArchiveConfig) -> list[ArchiveResult]:
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Partition into already-archived and pending
+    existing: list[ArchiveResult] = []
+    pending: list[str] = []
+    for url in urls:
+        output = _output_path(url, config.output_dir)
+        if output.exists() and output.stat().st_size > 0:
+            existing.append(ArchiveResult(url=url, output=output, success=True))
+        else:
+            pending.append(url)
+
+    logger.info(
+        "%d URLs total: %d already archived, %d to download",
+        len(urls),
+        len(existing),
+        len(pending),
+    )
+
+    if not pending:
+        return existing
+
     global_sem = asyncio.Semaphore(config.global_concurrency)
     domain_sems: dict[str, asyncio.Semaphore] = defaultdict(
         lambda: asyncio.Semaphore(config.per_domain_concurrency)
     )
 
-    # Log domain distribution
+    # Log domain distribution for pending URLs
     domain_counts: dict[str, int] = defaultdict(int)
-    for url in urls:
+    for url in pending:
         domain_counts[_domain(url)] += 1
     top = sorted(domain_counts.items(), key=lambda x: -x[1])[:10]
 
     logger.info(
-        "%d URLs across %d domains. Top: %s",
-        len(urls),
+        "%d pending across %d domains. Top: %s",
+        len(pending),
         len(domain_counts),
         ", ".join(f"{d}({n})" for d, n in top),
     )
 
-    tasks = [_archive_one(url, config, global_sem, domain_sems) for url in urls]
+    tasks = [_archive_one(url, config, global_sem, domain_sems) for url in pending]
     results: list[ArchiveResult] = []
     succeeded = 0
     failed = 0
@@ -168,7 +188,7 @@ async def archive_urls(urls: list[str], config: ArchiveConfig) -> list[ArchiveRe
     logger.info(
         "Done: %d/%d succeeded, %d timed out", succeeded, len(results), timed_out
     )
-    return results
+    return existing + results
 
 
 if __name__ == "__main__":
