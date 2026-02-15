@@ -22,7 +22,7 @@ import sqlite3
 import sys
 import tempfile
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse, urlunparse
 
 FIREFOX_PROFILES_DIR = Path(
     "~/Library/Application Support/Firefox/Profiles"
@@ -298,6 +298,13 @@ EMAIL_TRACKING_DOMAIN_PATTERNS = [
     re.compile(r"^em\."),
 ]
 
+# --- Path-based pagination patterns ---
+PATH_PAGINATION_PATTERNS = [
+    re.compile(r"/page/\d+/?$", re.IGNORECASE),
+    re.compile(r"/p/\d+/?$", re.IGNORECASE),
+    re.compile(r"/pages/\d+/?$", re.IGNORECASE),
+]
+
 # Minimum length of a single path segment to be considered opaque/tracking junk.
 # Real page paths rarely have a single segment this long.
 OPAQUE_PATH_SEGMENT_THRESHOLD = 80
@@ -405,20 +412,56 @@ def strip_pagination_params(url: str) -> str:
 
 
 def normalize_url(url: str) -> str:
-    """Full normalization: strip tracking, fragments, trailing slashes."""
+    """Full normalization: strip tracking, fragments, trailing slashes,
+    canonicalize scheme, host, path encoding, and query param order.
+    """
     url = strip_tracking_params(url)
     parsed = urlparse(url)
-    path = parsed.path.rstrip("/") or "/"
-    return urlunparse(parsed._replace(path=path, fragment=""))
+
+    # Scheme: normalize to https
+    scheme = "https"
+
+    # Host: lowercase + strip www.
+    netloc = parsed.netloc.lower()
+    host, _, port = netloc.partition(":")
+    if host.startswith("www."):
+        host = host[4:]
+    netloc = f"{host}:{port}" if port else host
+
+    # Path: normalize percent-encoding + strip trailing slash
+    path = quote(unquote(parsed.path), safe="/:@!$&'()*+,;=-._~")
+    path = path.rstrip("/") or "/"
+
+    # Query: sort parameters for canonical order
+    if parsed.query:
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        sorted_query = urlencode(
+            {k: v[0] if len(v) == 1 else v for k, v in sorted(params.items())},
+            doseq=True,
+        )
+    else:
+        sorted_query = ""
+
+    return urlunparse((scheme, netloc, path, "", sorted_query, ""))
+
+
+def strip_pagination_path(url: str) -> str:
+    """Remove path-based pagination segments like /page/2/."""
+    parsed = urlparse(url)
+    path = parsed.path
+    for pat in PATH_PAGINATION_PATTERNS:
+        path = pat.sub("/", path)
+    return urlunparse(parsed._replace(path=path))
 
 
 def deduplicate_pagination(urls: set[str]) -> set[str]:
-    """Collapse URLs that differ only by pagination params.
-    Returns the deduplicated set (keeping one representative per group).
+    """Collapse URLs that differ only by pagination params or path segments.
+    Iterates in sorted order for deterministic representative selection.
     """
     seen_bases: dict[str, str] = {}
-    for url in urls:
+    for url in sorted(urls):
         base = strip_pagination_params(url)
+        base = strip_pagination_path(base)
         if base not in seen_bases:
             seen_bases[base] = url
     return set(seen_bases.values())
@@ -564,7 +607,7 @@ def main() -> None:
 
     # Normalize (strip tracking params + fragments + trailing slashes)
     normalized_map: dict[str, str] = {}
-    for url in archivable:
+    for url in sorted(archivable):
         norm = normalize_url(url)
         if norm not in normalized_map:
             normalized_map[norm] = url
