@@ -16,3 +16,4 @@ htop
 cloc
 trash-cli
 visidata
+libclang-dev
