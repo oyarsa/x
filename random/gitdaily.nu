@@ -1,19 +1,30 @@
 #!/usr/bin/env nu
 
-def main [repo: string = "."] {
+def main [
+    repo: string = "."
+    --pattern (-P): string  # regex to filter files (e.g. '\.go$'). Default: all git-tracked files
+    --first: int         # only include the first N days
+    --last: int          # only include the last N days
+] {
     cd $repo
 
-    git log --date=short --format='%ad %H'
-    | lines
-    | parse "{day} {commit}"
-    | uniq-by day
-    | sort-by day
+    let days = git log --date=short --format='%ad %H'
+        | lines
+        | parse "{day} {commit}"
+        | uniq-by day
+        | sort-by day
+
+    let days = if $first != null { $days | first $first } else { $days }
+    let days = if $last != null { $days | last ($last + 1) } else { $days }
+
+    $days
     | reduce -f { prev: 0, rows: [] } {|row, acc|
-        let go_files = git ls-tree -r --name-only $row.commit
-            | lines
-            | where { str ends-with ".go" }
-        let count = if ($go_files | is-empty) { 0 } else {
-            git archive $row.commit -- ...$go_files | tar -xO
+        let files = git ls-tree -r --name-only $row.commit | lines
+        let files = if $pattern != null {
+            $files | where {|f| $f =~ $pattern }
+        } else { $files }
+        let count = if ($files | is-empty) { 0 } else {
+            git archive $row.commit -- ...$files | tar -xO
             | lines
             | where { str trim | is-not-empty }
             | length
@@ -29,4 +40,5 @@ def main [repo: string = "."] {
         }
     }
     | get rows
+    | if $last != null { skip 1 } else { $in }
 }
