@@ -14,32 +14,39 @@ if TYPE_CHECKING:
     from parch.models import ArchivedTask, IndexEntry
 
 
+def _make_console(colour: str, **kwargs: object) -> Console:
+    """Create a Console with correct colour handling.
+
+    Rich's force_terminal is a three-way Optional[bool]:
+      None = auto-detect, True = force on, False = force off.
+    We must pass None for "auto", not False.
+    """
+    return Console(
+        force_terminal=True if colour == "always" else None,
+        no_color=True if colour == "never" else None,
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
 def format_task_table(
     entries: list[IndexEntry],
     *,
     colour: str = "auto",
 ) -> None:
     """Print a rich table of index entries to stdout."""
-    force_terminal = colour == "always"
-    no_color = colour == "never"
-    console = Console(
-        force_terminal=force_terminal,
-        no_color=no_color,
-    )
+    console = _make_console(colour)
 
-    table = Table(show_header=True, header_style="bold")
+    table = Table(show_header=True, header_style="bold cyan")
     table.add_column("Archive ID", style="dim", no_wrap=True, max_width=14)
-    table.add_column("Pueue ID", justify="right", max_width=6)
+    table.add_column("Pueue ID", justify="right", style="bright_cyan", max_width=6)
     table.add_column("Status", max_width=10)
-    table.add_column("Group", max_width=12)
-    table.add_column("Command", max_width=50)
-    table.add_column("End", max_width=20)
+    table.add_column("Group", style="magenta", max_width=12)
+    table.add_column("Command", style="white", max_width=50)
+    table.add_column("End", style="bright_black", max_width=20)
 
     for entry in entries:
         status_style = _status_style(entry.status)
-        # Truncate archive_id for display (first 13 chars)
         short_id = entry.archive_id[:13]
-        # Truncate command for display
         cmd_display = _truncate(entry.command, 50)
         end_display = _format_timestamp(entry.end_at or entry.start_at or "")
 
@@ -64,14 +71,16 @@ def print_task_output(
     colour: str = "auto",
 ) -> None:
     """Print stored task output, optionally with metadata header."""
+    strip = no_ansi or colour == "never"
+
     output_parts: list[str] = []
 
     if show_meta:
-        output_parts.append(_format_meta_header(task))
+        output_parts.append(_format_meta_header(task, colour=colour))
         output_parts.append("")
 
     combined = task.output.combined
-    if no_ansi:
+    if strip:
         combined = strip_ansi(combined)
 
     output_parts.append(combined)
@@ -86,23 +95,38 @@ def print_task_output(
             sys.stdout.write("\n")
 
 
-def _format_meta_header(task: ArchivedTask) -> str:
+def _format_meta_header(task: ArchivedTask, *, colour: str = "auto") -> str:
     """Format a metadata header block for display."""
-    lines = [
-        f"Archive ID:  {task.archive_id}",
-        f"Pueue ID:   {task.source.pueue_task_id}",
-        f"Status:     {task.meta.status}",
-        f"Group:      {task.source.pueue_group}",
-        f"Command:    {task.meta.command}",
-        f"Directory:  {task.meta.cwd}",
-        f"Created:    {task.meta.timestamps.created_at}",
-    ]
-    if task.meta.timestamps.start_at:
-        lines.append(f"Started:    {task.meta.timestamps.start_at}")
-    if task.meta.timestamps.end_at:
-        lines.append(f"Ended:      {task.meta.timestamps.end_at}")
-    lines.append("─" * 60)
-    return "\n".join(lines)
+    console = _make_console(colour, highlight=False)
+    status_style = _status_style(task.meta.status)
+
+    with console.capture() as capture:
+        console.print(f"[bold]Archive ID:[/bold]  [dim]{task.archive_id}[/dim]")
+        console.print(
+            f"[bold]Pueue ID:[/bold]   [bright_cyan]{task.source.pueue_task_id}[/bright_cyan]"
+        )
+        console.print(
+            f"[bold]Status:[/bold]     [{status_style}]{task.meta.status}[/{status_style}]"
+        )
+        console.print(
+            f"[bold]Group:[/bold]      [magenta]{task.source.pueue_group}[/magenta]"
+        )
+        console.print(f"[bold]Command:[/bold]    {task.meta.command}")
+        console.print(f"[bold]Directory:[/bold]  {task.meta.cwd}")
+        console.print(
+            f"[bold]Created:[/bold]    [bright_black]{task.meta.timestamps.created_at}[/bright_black]"
+        )
+        if task.meta.timestamps.start_at:
+            console.print(
+                f"[bold]Started:[/bold]    [bright_black]{task.meta.timestamps.start_at}[/bright_black]"
+            )
+        if task.meta.timestamps.end_at:
+            console.print(
+                f"[bold]Ended:[/bold]      [bright_black]{task.meta.timestamps.end_at}[/bright_black]"
+            )
+        console.print("[dim]" + "─" * 60 + "[/dim]")
+
+    return capture.get().rstrip()
 
 
 def strip_ansi(text: str) -> str:
