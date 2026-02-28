@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-parch = "parch.cli:app"
+parch = "parch.cli:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -28,11 +27,24 @@ class PueueTask:
     raw_json: dict[str, Any]
 
 
+class PueueError(Exception):
+    """Raised when pueue cannot be invoked or returns an error."""
+
+
+class PueueParseError(Exception):
+    """Raised when pueue output cannot be parsed as valid JSON."""
+
+
 def run_pueue_log(
     pueue_bin: str = "pueue",
     timeout: int | None = None,
 ) -> dict[str, Any]:
-    """Run `pueue log --json` and return parsed JSON."""
+    """Run `pueue log --json` and return parsed JSON.
+
+    Raises:
+        PueueError: If pueue is not found, times out, or returns non-zero.
+        PueueParseError: If the output is not valid JSON.
+    """
     cmd = [pueue_bin, "log", "--json"]
     try:
         result = subprocess.run(
@@ -43,24 +55,19 @@ def run_pueue_log(
             check=False,
         )
     except FileNotFoundError:
-        print(f"Error: pueue binary not found at '{pueue_bin}'", file=sys.stderr)
-        sys.exit(2)
+        raise PueueError(f"pueue binary not found at '{pueue_bin}'") from None
     except subprocess.TimeoutExpired:
-        print(f"Error: pueue timed out after {timeout}s", file=sys.stderr)
-        sys.exit(2)
+        raise PueueError(f"pueue timed out after {timeout}s") from None
 
     if result.returncode != 0:
-        print(
-            f"Error: pueue returned exit code {result.returncode}: {result.stderr}",
-            file=sys.stderr,
+        raise PueueError(
+            f"pueue returned exit code {result.returncode}: {result.stderr}"
         )
-        sys.exit(2)
 
     try:
         data: dict[str, Any] = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
-        print(f"Error: invalid JSON from pueue: {exc}", file=sys.stderr)
-        sys.exit(3)
+        raise PueueParseError(f"invalid JSON from pueue: {exc}") from exc
 
     return data
 

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 import typer
 
 from parch.archive import (
+    ArchiveLockError,
     load_index,
     load_task,
     rebuild_index,
@@ -24,6 +25,7 @@ from parch.archive import (
 )
 from parch.config import load_config
 from parch.display import format_task_table, print_task_output
+from parch.pueue import PueueError, PueueParseError
 from parch.sync import sync
 
 app = typer.Typer(
@@ -70,7 +72,7 @@ def _auto_sync(state: AppState) -> None:
 
 
 @app.callback()
-def main(
+def app_callback(
     ctx: typer.Context,
     archive_dir: Annotated[
         str | None,
@@ -349,12 +351,11 @@ def _resolve_task(
         return load_task(paths, matches[0].archive_id)
 
     if len(matches) > 1:
-        print(
-            f"Error: ambiguous prefix '{archive_id}' matches "
-            f"{len(matches)} tasks. Be more specific.",
-            file=sys.stderr,
+        msg = (
+            f"Ambiguous prefix '{archive_id}' matches "
+            f"{len(matches)} tasks. Be more specific."
         )
-        sys.exit(1)
+        raise typer.BadParameter(msg)
 
     return None
 
@@ -445,20 +446,15 @@ def _parse_date(date_str: str) -> datetime:
         dt = datetime.strptime(date_str, "%Y-%m-%d")  # noqa: DTZ007
         return dt.replace(tzinfo=UTC)
     except ValueError:
-        print(f"Error: cannot parse date '{date_str}'", file=sys.stderr)
-        sys.exit(1)
+        raise typer.BadParameter(f"Cannot parse date '{date_str}'") from None
 
 
 def _parse_duration(duration_str: str) -> timedelta:
     """Parse a duration string like '7d', '24h', '30m' into a timedelta."""
     match = re.match(r"^(\d+)([dhms])$", duration_str)
     if not match:
-        print(
-            f"Error: invalid duration '{duration_str}'. "
-            "Use format like 7d, 24h, 30m, 60s.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        msg = f"Invalid duration '{duration_str}'. Use format like 7d, 24h, 30m, 60s."
+        raise typer.BadParameter(msg)
 
     value = int(match.group(1))
     unit = match.group(2)
@@ -487,3 +483,19 @@ def _sort_entries(
         return entry.end_at or entry.start_at or entry.created_at or ""
 
     return sorted(entries, key=sort_key, reverse=not reverse)
+
+
+_EXIT_CODES = {
+    PueueError: 2,
+    PueueParseError: 3,
+    ArchiveLockError: 4,
+}
+
+
+def main() -> None:
+    """Entry point that wraps the typer app with error handling."""
+    try:
+        app()
+    except (PueueError, PueueParseError, ArchiveLockError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(_EXIT_CODES.get(type(exc), 1))

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from rich.table import Table
@@ -14,18 +14,22 @@ if TYPE_CHECKING:
     from parch.models import ArchivedTask, IndexEntry
 
 
-def _make_console(colour: str, **kwargs: object) -> Console:
+def _make_console(colour: str, **kwargs: Any) -> Console:
     """Create a Console with correct colour handling.
 
     Rich's force_terminal is a three-way Optional[bool]:
       None = auto-detect, True = force on, False = force off.
     We must pass None for "auto", not False.
     """
-    return Console(
-        force_terminal=True if colour == "always" else None,
-        no_color=True if colour == "never" else None,
-        **kwargs,  # type: ignore[arg-type]
-    )
+    match colour:
+        case "always":
+            return Console(force_terminal=True, no_color=False, **kwargs)
+        case "never":
+            return Console(force_terminal=False, no_color=True, **kwargs)
+        case "auto":
+            return Console(**kwargs)
+        case _:
+            raise ValueError(f"Invalid colour value: '{colour}'")
 
 
 def format_task_table(
