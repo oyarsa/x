@@ -10,11 +10,13 @@ from typing import TYPE_CHECKING, Any
 from rich.console import Console
 from rich.table import Table
 
+from parch.models import ColourMode
+
 if TYPE_CHECKING:
     from parch.models import ArchivedTask, IndexEntry
 
 
-def _make_console(colour: str, **kwargs: Any) -> Console:
+def _make_console(colour: ColourMode, **kwargs: Any) -> Console:
     """Create a Console with correct colour handling.
 
     Rich's force_terminal is a three-way Optional[bool]:
@@ -22,20 +24,18 @@ def _make_console(colour: str, **kwargs: Any) -> Console:
     We must pass None for "auto", not False.
     """
     match colour:
-        case "always":
+        case ColourMode.ALWAYS:
             return Console(force_terminal=True, no_color=False, **kwargs)
-        case "never":
+        case ColourMode.NEVER:
             return Console(force_terminal=False, no_color=True, **kwargs)
-        case "auto":
+        case ColourMode.AUTO:
             return Console(**kwargs)
-        case _:
-            raise ValueError(f"Invalid colour value: '{colour}'")
 
 
 def format_task_table(
     entries: list[IndexEntry],
     *,
-    colour: str = "auto",
+    colour: ColourMode = ColourMode.AUTO,
 ) -> None:
     """Print a rich table of index entries to stdout."""
     console = _make_console(colour)
@@ -72,10 +72,10 @@ def print_task_output(
     show_meta: bool = False,
     no_ansi: bool = False,
     use_pager: str = "auto",
-    colour: str = "auto",
+    colour: ColourMode = ColourMode.AUTO,
 ) -> None:
     """Print stored task output, optionally with metadata header."""
-    strip = no_ansi or colour == "never"
+    strip = no_ansi or colour == ColourMode.NEVER
 
     output_parts: list[str] = []
 
@@ -99,7 +99,9 @@ def print_task_output(
             sys.stdout.write("\n")
 
 
-def _format_meta_header(task: ArchivedTask, *, colour: str = "auto") -> str:
+def _format_meta_header(
+    task: ArchivedTask, *, colour: ColourMode = ColourMode.AUTO
+) -> str:
     """Format a metadata header block for display."""
     console = _make_console(colour, highlight=False)
     status_style = _status_style(task.meta.status)

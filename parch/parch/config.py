@@ -7,6 +7,8 @@ from pathlib import Path
 
 import toml
 
+from parch.models import ColourMode
+
 _DEFAULT_CONFIG_PATH = Path.home() / ".config" / "parch" / "config.toml"
 
 
@@ -17,7 +19,7 @@ class ParchConfig:
     archive_dir: str | None = None
     pueue_bin: str = "pueue"
     include_running: bool = False
-    colour: str = "auto"
+    colour: ColourMode = ColourMode.AUTO
     pager: str = "auto"
 
 
@@ -40,6 +42,6 @@ def load_config(config_path: Path | None = None) -> ParchConfig:
         archive_dir=data.get("archive_dir"),
         pueue_bin=data.get("pueue_bin", "pueue"),
         include_running=data.get("include_running", False),
-        colour=data.get("color", data.get("colour", "auto")),
+        colour=ColourMode(data.get("color", data.get("colour", "auto"))),
         pager=data.get("pager", "auto"),
     )

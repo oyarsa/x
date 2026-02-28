@@ -25,6 +25,7 @@ from parch.archive import (
 )
 from parch.config import load_config
 from parch.display import format_task_table, print_task_output
+from parch.models import ColourMode
 from parch.pueue import PueueError, PueueParseError
 from parch.sync import sync
 
@@ -46,7 +47,7 @@ class AppState:
     archive_dir: str | None = None
     pueue_bin: str = "pueue"
     do_sync: bool = True
-    colour: str = "auto"
+    colour: ColourMode = ColourMode.AUTO
     pager: str = "auto"
     verbose: bool = False
     quiet: bool = False
@@ -87,9 +88,9 @@ def app_callback(
         typer.Option("--sync/--no-sync", help="Enable/disable implicit sync."),
     ] = True,
     color: Annotated[
-        str,
+        ColourMode | None,
         typer.Option("--color", help="Colour output: auto|always|never."),
-    ] = "",
+    ] = None,
     pager: Annotated[
         str,
         typer.Option("--pager", help="Pager: auto|always|never."),
@@ -110,7 +111,7 @@ def app_callback(
         archive_dir=archive_dir or config.archive_dir,
         pueue_bin=pueue_bin or config.pueue_bin,
         do_sync=sync_flag,
-        colour=color or config.colour,
+        colour=color if color is not None else config.colour,
         pager=pager or config.pager,
         verbose=verbose,
         quiet=quiet,
