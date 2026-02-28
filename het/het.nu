@@ -308,18 +308,27 @@ def "main list" [] {
         return
     }
 
-    $snapshots | each {|s|
+    let rows = $snapshots | each {|s|
         let name = if ($s.description | is-not-empty) { $s.description } else { $"id:($s.id)" }
+        let size = $s | get -o image_size | default 0
         {
             NAME: ($name | str substring 0..40)
             ID: $s.id
-            SIZE: $"(($s | get -o image_size | default 0) | math round --precision 1) GB"
+            SIZE: $"($size | math round --precision 1) GB"
             SERVER: ($s.labels | get -o "original-server" | default "-")
             TYPE: ($s.labels | get -o "server-type" | default "-")
             LOC: ($s.labels | get -o "location" | default "-")
             CREATED: $s.created
         }
-    } | table
+    }
+
+    let total_gb = $snapshots
+        | each {|s| $s | get -o image_size | default 0 }
+        | math sum
+    let cost = $total_gb * 0.011 | math round --precision 2
+
+    print ($rows | table)
+    info $"Total: ($total_gb | math round --precision 1) GB — €($cost)/month"
 }
 
 # Delete one or more snapshots.
