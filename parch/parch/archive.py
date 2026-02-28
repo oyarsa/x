@@ -5,8 +5,8 @@ from __future__ import annotations
 import fcntl
 import json
 import os
-import sys
 import tempfile
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,28 +66,44 @@ def ensure_archive_dirs(paths: ArchivePaths) -> None:
 def archive_lock(paths: ArchivePaths, timeout: float = 5.0) -> Iterator[None]:
     """Acquire an advisory lock on the archive directory.
 
+    Tries non-blocking first, then retries with short sleeps until timeout.
+
     Args:
         paths: Archive paths.
-        timeout: Seconds to wait before failing. Currently uses blocking flock.
+        timeout: Seconds to wait before failing.
 
     Raises:
-        SystemExit: If the lock cannot be acquired.
+        ArchiveLockError: If the lock cannot be acquired within the timeout.
     """
     ensure_archive_dirs(paths)
     lock_file = open(paths.lock_path, "w")  # noqa: SIM115
     try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        _acquire_flock(lock_file.fileno(), timeout)
         yield
-    except OSError:
-        print(
-            "Error: could not acquire archive lock. "
-            "Another parch instance may be running.",
-            file=sys.stderr,
-        )
-        sys.exit(4)
     finally:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
         lock_file.close()
+
+
+class ArchiveLockError(OSError):
+    """Raised when the archive lock cannot be acquired within the timeout."""
+
+
+def _acquire_flock(fd: int, timeout: float) -> None:
+    """Try to acquire LOCK_EX, retrying until timeout."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            if time.monotonic() >= deadline:
+                raise ArchiveLockError(
+                    "Could not acquire archive lock. "
+                    "Another parch instance may be running."
+                ) from None
+            time.sleep(0.05)
+        else:
+            return
 
 
 # --- Fingerprints ---
