@@ -8,6 +8,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from importlib import metadata
 from typing import TYPE_CHECKING, Annotated
 
 if TYPE_CHECKING:
@@ -72,6 +73,13 @@ def _auto_sync(state: AppState) -> None:
     )
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        version = metadata.version("parch")
+        print(f"paper {version}")
+        raise typer.Exit
+
+
 @app.callback()
 def app_callback(
     ctx: typer.Context,
@@ -103,6 +111,14 @@ def app_callback(
         bool,
         typer.Option("--quiet", "-q", help="Suppress informational output."),
     ] = False,
+    _: bool = typer.Option(
+        None,
+        "--version",
+        "-V",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the application version and exit.",
+    ),
 ) -> None:
     """Global options applied before every command."""
     config = load_config()
