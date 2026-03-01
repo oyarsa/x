@@ -76,6 +76,11 @@ ignore = [
     "TRY003",   # Long messages outside exception class
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "D",     # No docstring requirements in tests
+]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
