@@ -173,7 +173,12 @@ def _format_timestamp(ts: str) -> str:
     return ts.replace("T", " ")
 
 
-def _should_page(output: str, pager_mode: str) -> bool:
+def _should_page(
+    output: str,
+    pager_mode: str,
+    *,
+    is_tty: bool | None = None,
+) -> bool:
     """Decide whether to use a pager."""
     if pager_mode == "never":
         return False
@@ -181,7 +186,8 @@ def _should_page(output: str, pager_mode: str) -> bool:
         return True
 
     # "auto": page if interactive and output is long
-    if not sys.stdout.isatty():
+    tty = sys.stdout.isatty() if is_tty is None else is_tty
+    if not tty:
         return False
     return output.count("\n") > 40
 

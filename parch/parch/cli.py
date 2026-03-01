@@ -385,9 +385,11 @@ def _apply_time_filters(
     today: bool,
     yesterday: bool,
     last_week: bool,
+    *,
+    now: datetime | None = None,
 ) -> list[IndexEntry]:
     """Apply time-based filters to entries."""
-    now = datetime.now(tz=UTC)
+    now = now or datetime.now(tz=UTC)
 
     if today:
         start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
