@@ -51,12 +51,6 @@ RUN --mount=type=secret,id=gh_token \
 # Install Claude Code
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
-# Install Playwright with Chromium and configure MCP
-RUN npx playwright install --with-deps chromium && \
-    (claude mcp remove --scope user playwright 2>/dev/null || true) && \
-    claude mcp add --scope user playwright -- npx @playwright/mcp@latest --headless --no-sandbox --isolated --browser chromium && \
-    codex mcp add playwright -- npx @playwright/mcp@latest --headless --no-sandbox --isolated --browser chromium
-
 # Install Fisher and plugins
 RUN fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher"
 RUN fish -c "fisher install gazorby/fifc"

@@ -54,18 +54,6 @@ echo "==> Installing mise tools..."
 echo "==> Installing Claude Code..."
 curl -fsSL https://claude.ai/install.sh | bash
 
-echo "==> Installing Playwright with Chromium..."
-npx playwright install --with-deps chromium
-# Remove playwright if existent
-claude mcp remove --scope user playwright 2>/dev/null || true
-claude mcp add --scope user playwright -- \
-	npx @playwright/mcp@latest \
-	--headless --no-chromium-sandbox --isolated --browser chromium
-
-codex mcp add playwright -- \
-	npx @playwright/mcp@latest \
-	--headless --no-chromium-sandbox --isolated --browser chromium
-
 echo "==> Installing Fisher and plugins..."
 fish -c "curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher"
 fish -c "fisher update"
