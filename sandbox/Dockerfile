@@ -40,6 +40,11 @@ RUN --mount=type=secret,id=gh_token \
     sh -c "$(curl -fsLS get.chezmoi.io)" -- -b ~/.local/bin && \
     ~/.local/bin/chezmoi init --apply oyarsa
 
+# Install Rust via rustup (default profile + rust-analyzer)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    . "$HOME/.cargo/env" && \
+    rustup component add rust-analyzer
+
 # Install mise and tools
 ENV MISE_YES=1
 RUN curl https://mise.run | sh

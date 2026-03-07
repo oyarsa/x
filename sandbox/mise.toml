@@ -1,7 +1,6 @@
 [tools]
 node = "lts"
 go = "latest"
-rust = { version = "latest", components = "clippy,rustfmt,rust-analyzer" }
 just = "latest"
 uv = "latest"
 jj = "latest"

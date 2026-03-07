@@ -41,6 +41,11 @@ echo "==> Installing chezmoi and applying dotfiles..."
 sh -c "$(curl -fsLS get.chezmoi.io)" -- -b ~/.local/bin
 ~/.local/bin/chezmoi init --apply oyarsa
 
+echo "==> Installing Rust via rustup..."
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+. "$HOME/.cargo/env"
+rustup component add rust-analyzer
+
 echo "==> Installing mise..."
 curl https://mise.run | sh
 
