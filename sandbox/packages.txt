@@ -18,3 +18,4 @@ trash-cli
 visidata
 libclang-dev
 miller
+rlwrap
