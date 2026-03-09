@@ -56,6 +56,10 @@ cp "$SCRIPT_DIR/mise.toml" ~/.config/mise/config.toml
 echo "==> Installing mise tools..."
 ~/.local/bin/mise install
 
+echo "==> Installing Homebrew..."
+NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
 echo "==> Installing Claude Code..."
 curl -fsSL https://claude.ai/install.sh | bash
 
