@@ -35,17 +35,18 @@ class PueueParseError(Exception):
     """Raised when pueue output cannot be parsed as valid JSON."""
 
 
-def run_pueue_log(
+def _run_pueue_json(
+    subcmd: list[str],
     pueue_bin: str = "pueue",
     timeout: int | None = None,
 ) -> dict[str, Any]:
-    """Run `pueue log --json` and return parsed JSON.
+    """Run a pueue subcommand with ``--json`` and return parsed JSON.
 
     Raises:
         PueueError: If pueue is not found, times out, or returns non-zero.
         PueueParseError: If the output is not valid JSON.
     """
-    cmd = [pueue_bin, "log", "--json"]
+    cmd = [pueue_bin, *subcmd, "--json"]
     try:
         result = subprocess.run(
             cmd,
@@ -70,6 +71,29 @@ def run_pueue_log(
         raise PueueParseError(f"invalid JSON from pueue: {exc}") from exc
 
     return data
+
+
+def run_pueue_log(
+    pueue_bin: str = "pueue",
+    timeout: int | None = None,
+) -> dict[str, Any]:
+    """Run ``pueue log --json`` and return parsed JSON."""
+    return _run_pueue_json(["log"], pueue_bin=pueue_bin, timeout=timeout)
+
+
+def run_pueue_status(
+    pueue_bin: str = "pueue",
+    timeout: int | None = None,
+) -> dict[str, Any]:
+    """Run ``pueue status --json`` and return the tasks dict.
+
+    Returns the ``"tasks"`` sub-dict (``{task_id_str: task_data, ...}``),
+    which uses the same flat task structure as legacy ``pueue log``.
+    """
+    data = _run_pueue_json(["status"], pueue_bin=pueue_bin, timeout=timeout)
+    tasks: dict[str, Any] = data.get("tasks", {})
+    # pueue status uses integer keys; normalise to strings for consistency
+    return {str(k): v for k, v in tasks.items()}
 
 
 def parse_pueue_status(status_value: Any) -> TaskStatus:
@@ -173,10 +197,12 @@ def _opt_str_field(data: dict[str, Any], key: str) -> str | None:
 
 
 def parse_pueue_tasks(raw_data: dict[str, Any]) -> list[PueueTask]:
-    """Parse the full pueue log JSON into a list of PueueTask objects.
+    """Parse pueue task JSON into a list of PueueTask objects.
 
-    Pueue log JSON structure:
-      {task_id: {"task": {id, command, status, ...}, "output": "..."}, ...}
+    Supports two layouts:
+      - ``pueue log``:    ``{task_id: {"task": {...}, "output": "..."}, ...}``
+      - ``pueue status``: ``{task_id: {id, command, status, ...}, ...}``
+        (output may be injected as ``_log_output`` by the caller)
     """
     tasks: list[PueueTask] = []
 
@@ -184,14 +210,14 @@ def parse_pueue_tasks(raw_data: dict[str, Any]) -> list[PueueTask]:
         if not is_dict_of(entry, k=str, v=Any):
             continue
 
-        # Modern pueue wraps each entry as {"task": {...}, "output": "..."}
+        # Modern pueue log wraps each entry as {"task": {...}, "output": "..."}
         if "task" in entry:
             task_data = cast(dict[str, Any], entry["task"])
             output = str(entry.get("output", ""))
         else:
-            # Fallback: flat structure (older pueue versions)
+            # Flat structure (pueue status or older pueue log)
             task_data = entry
-            output = _str_field(entry, "output")
+            output = str(entry.get("_log_output", "")) or _str_field(entry, "output")
 
         status_raw = task_data.get("status")
         status = parse_pueue_status(status_raw)

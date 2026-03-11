@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from parch.archive import (
     archive_lock,
@@ -28,7 +28,7 @@ from parch.models import (
     generate_archive_id,
     now_iso,
 )
-from parch.pueue import parse_pueue_tasks, run_pueue_log
+from parch.pueue import parse_pueue_tasks, run_pueue_log, run_pueue_status
 
 if TYPE_CHECKING:
     from parch.archive import ArchivePaths
@@ -51,7 +51,22 @@ def sync(
     3. For each task: create new or update existing archive entry
     4. Rewrite index and fingerprints
     """
-    pueue_tasks = parse_pueue_tasks(run_pueue_log(pueue_bin=pueue_bin, timeout=timeout))
+    # Use pueue status for task discovery (includes Done tasks not yet
+    # cleaned), then overlay output from pueue log where available.
+    status_data = run_pueue_status(pueue_bin=pueue_bin, timeout=timeout)
+    log_data = run_pueue_log(pueue_bin=pueue_bin, timeout=timeout)
+    for tid, log_entry in log_data.items():
+        if not isinstance(log_entry, dict):
+            continue
+        entry = cast(dict[str, Any], log_entry)
+        if tid in status_data:
+            # Merge output into the status entry
+            status_data[tid]["_log_output"] = entry.get("output", "")
+        else:
+            # Task only in log (already cleaned from status) — keep it
+            status_data[tid] = log_entry
+
+    pueue_tasks = parse_pueue_tasks(status_data)
 
     result = SyncResult()
     ensure_archive_dirs(paths)

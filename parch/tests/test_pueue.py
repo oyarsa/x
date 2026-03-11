@@ -412,6 +412,49 @@ class TestParsePueueTasks:
         tasks = parse_pueue_tasks(raw)
         assert tasks[0].cwd == "/home/user"
 
+    def test_pueue_status_flat_format(self) -> None:
+        """Flat entries from ``pueue status --json`` are parsed correctly."""
+        raw: dict[str, Any] = {
+            "23": {
+                "id": 23,
+                "created_at": "2026-03-10T12:49:57Z",
+                "original_command": "echo done",
+                "command": "echo done",
+                "path": "/home/user",
+                "group": "default",
+                "status": {
+                    "Done": {
+                        "enqueued_at": "2026-03-10T12:49:57Z",
+                        "start": "2026-03-10T12:49:58Z",
+                        "end": "2026-03-10T12:50:00Z",
+                        "result": "Success",
+                    },
+                },
+            },
+        }
+        tasks = parse_pueue_tasks(raw)
+        assert len(tasks) == 1
+        assert tasks[0].task_id == "23"
+        assert tasks[0].command == "echo done"
+        assert tasks[0].status == TaskStatus.SUCCESS
+        assert tasks[0].output == ""
+
+    def test_pueue_status_with_log_output(self) -> None:
+        """``_log_output`` injected by sync is picked up as output."""
+        raw: dict[str, Any] = {
+            "5": {
+                "id": 5,
+                "created_at": "2026-01-01T00:00:00",
+                "original_command": "echo hi",
+                "path": "/test",
+                "group": "default",
+                "status": {"Done": {"result": "Success"}},
+                "_log_output": "hi\n",
+            },
+        }
+        tasks = parse_pueue_tasks(raw)
+        assert tasks[0].output == "hi\n"
+
 
 # ---------------------------------------------------------------------------
 # Functions that need mocks / side effects (future work)
