@@ -19,6 +19,7 @@ from paca.schema import (
 )
 from paca.ui.home_screen import HomeScreen
 from paca.ui.review_screen import ReviewScreen
+from paca.ui.success_screen import SuccessScreen
 
 
 class PacaApp(App[None]):
@@ -181,8 +182,16 @@ class PacaApp(App[None]):
             creds = get_credentials()
             result = create_event(creds, calendar_id=draft.calendar_id, body=body)
             link = result.get("htmlLink", "")
-            self.notify(f"Event created! {link}", severity="information")
         except Exception as exc:
             self.notify(f"Failed to create event: {exc}", severity="error")
+            self.push_screen(HomeScreen(), callback=self._on_home_choice)
+            return
 
+        self.push_screen(
+            SuccessScreen(summary=draft.title, link=link),
+            callback=self._on_success_dismissed,
+        )
+
+    def _on_success_dismissed(self, _result: None) -> None:
+        """Return to home after success screen."""
         self.push_screen(HomeScreen(), callback=self._on_home_choice)
