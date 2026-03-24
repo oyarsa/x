@@ -32,29 +32,36 @@ type ExtractionInput = list[dict[str, Any]]
 
 
 def build_extraction_input(captured: CapturedInput) -> list[dict[str, Any]]:
-    """Build the input content list for the Responses API.
+    """Build the input list for the Responses API.
 
-    The Responses API takes `input` as a list of content items, not
-    Chat Completions-style message dicts with roles.
+    The Responses API `input` takes a list of message items. Each message
+    has a role and content (either a string or a list of content parts).
 
     Args:
         captured: The captured input (text or image).
 
     Returns:
-        List of content item dicts for the Responses API `input` parameter.
+        List of message dicts for the Responses API `input` parameter.
     """
     if captured.kind == InputKind.IMAGE and captured.image_base64:
         return [
             {
-                "type": "input_image",
-                "image_url": f"data:{captured.image_media_type or 'image/png'};base64,{captured.image_base64}",
+                "role": "user",
+                "type": "message",
+                "content": [
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:{captured.image_media_type or 'image/png'};base64,{captured.image_base64}",
+                    },
+                ],
             },
         ]
 
     return [
         {
-            "type": "input_text",
-            "text": captured.text or "",
+            "role": "user",
+            "type": "message",
+            "content": captured.text or "",
         },
     ]
 

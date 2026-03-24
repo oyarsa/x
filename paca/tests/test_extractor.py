@@ -8,15 +8,16 @@ class TestBuildExtractionInput:
     """Tests for Responses API input construction."""
 
     def test_text_input(self) -> None:
-        """Should build an input_text content item."""
+        """Should build a user message with text content."""
         captured = CapturedInput(kind=InputKind.TEXT, text="Dentist Tuesday 2pm")
         items = build_extraction_input(captured)
         assert len(items) == 1
-        assert items[0]["type"] == "input_text"
-        assert items[0]["text"] == "Dentist Tuesday 2pm"
+        assert items[0]["role"] == "user"
+        assert items[0]["type"] == "message"
+        assert items[0]["content"] == "Dentist Tuesday 2pm"
 
     def test_image_input(self) -> None:
-        """Should build an input_image content item with data URI."""
+        """Should build a user message with image content parts."""
         captured = CapturedInput(
             kind=InputKind.IMAGE,
             image_base64="abc123",
@@ -24,8 +25,12 @@ class TestBuildExtractionInput:
         )
         items = build_extraction_input(captured)
         assert len(items) == 1
-        assert items[0]["type"] == "input_image"
-        assert "data:image/png;base64,abc123" in items[0]["image_url"]
+        assert items[0]["role"] == "user"
+        assert items[0]["type"] == "message"
+        content = items[0]["content"]
+        assert isinstance(content, list)
+        assert content[0]["type"] == "input_image"
+        assert "data:image/png;base64,abc123" in content[0]["image_url"]
 
 
 class TestSystemPrompt:
