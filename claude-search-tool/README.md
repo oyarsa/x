@@ -5,7 +5,8 @@ Search Claude Code conversation history.
 ## Installation
 
 ```console
-uv tool install git+https://github.com/oyarsa/cchs.git
+git clone https://github.com/oyarsa/x.git
+uv tool install x/cchs
 ```
 
 ## Usage
