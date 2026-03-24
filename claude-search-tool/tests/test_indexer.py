@@ -73,14 +73,6 @@ class TestIndexing:
             indexer.index_file(dst, session_id="s1")
             assert indexer.message_count() == 5
 
-    def test_fts_search_works(self, tmp_path: Path) -> None:
-        """Test that FTS search returns results for a known term."""
-        db_path = tmp_path / "search.db"
-        with Indexer.new(db_path) as indexer:
-            indexer.index_file(FIXTURES / "simple_conversation.jsonl", session_id="s1")
-            results = indexer.fts_search("PFA")
-            assert len(results) > 0
-
     def test_schema_version_mismatch_rebuilds(self, tmp_path: Path) -> None:
         """Test that a schema version mismatch triggers a full rebuild."""
         db_path = tmp_path / "search.db"
@@ -98,9 +90,8 @@ class TestIndexing:
         """Test that a corrupt database file raises DatabaseCorruptError."""
         db_path = tmp_path / "search.db"
         db_path.write_text("this is not a sqlite database")
-        with pytest.raises(DatabaseCorruptError):
-            with Indexer.new(db_path):
-                pass
+        with pytest.raises(DatabaseCorruptError), Indexer.new(db_path):
+            pass
 
     def test_cleanup_deleted_files(self, tmp_path: Path) -> None:
         """Test that cleanup removes messages for deleted files."""

@@ -5,7 +5,6 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 from cchs.models import Message
 from cchs.parser import parse_jsonl_file
@@ -139,7 +138,8 @@ class Indexer:
         relative = file_path.name
         stat = file_path.stat()
         self._conn.execute(
-            "INSERT OR REPLACE INTO index_metadata (file_path, session_id, last_modified, last_size) "
+            "INSERT OR REPLACE INTO index_metadata "
+            "(file_path, session_id, last_modified, last_size) "
             "VALUES (?, ?, ?, ?)",
             (relative, session_id, stat.st_mtime, stat.st_size),
         )
@@ -153,7 +153,8 @@ class Indexer:
 
         for row in rows:
             self._conn.execute(
-                "INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', ?, ?)",
+                "INSERT INTO messages_fts(messages_fts, rowid, content) "
+                "VALUES('delete', ?, ?)",
                 (row["id"], row["content"]),
             )
 
@@ -163,7 +164,8 @@ class Indexer:
         """Insert messages into both messages and FTS tables."""
         for msg in messages:
             cursor = self._conn.execute(
-                "INSERT INTO messages (session_id, uuid, role, content, timestamp, message_index) "
+                "INSERT INTO messages "
+                "(session_id, uuid, role, content, timestamp, message_index) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     msg.session_id,
@@ -191,18 +193,6 @@ class Indexer:
         self._insert_messages(messages)
         self._update_metadata(file_path, session_id)
         self._conn.commit()
-
-    def fts_search(self, query: str) -> list[dict[str, Any]]:
-        """Run a raw FTS5 search."""
-        cursor = self._conn.execute(
-            "SELECT m.*, messages_fts.rank "
-            "FROM messages_fts "
-            "JOIN messages m ON m.id = messages_fts.rowid "
-            "WHERE messages_fts MATCH ? "
-            "ORDER BY messages_fts.rank",
-            (query,),
-        )
-        return [dict(row) for row in cursor.fetchall()]
 
     def cleanup_deleted_files(self, project_dir: Path) -> None:
         """Remove index entries for JSONL files that no longer exist on disk."""

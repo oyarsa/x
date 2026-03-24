@@ -13,7 +13,9 @@ def _make_indexed_db(tmp_path: Path) -> Path:
     """Create and populate a test database."""
     db_path = tmp_path / "search.db"
     with Indexer.new(db_path) as indexer:
-        indexer.index_file(FIXTURES / "simple_conversation.jsonl", session_id="session-1")
+        indexer.index_file(
+            FIXTURES / "simple_conversation.jsonl", session_id="session-1"
+        )
         indexer.index_file(FIXTURES / "mixed_types.jsonl", session_id="session-2")
     return db_path
 
@@ -111,7 +113,9 @@ class TestSearch:
         """Natural language queries find results via OR preprocessing."""
         db_path = _make_indexed_db(tmp_path)
         with Searcher.new(db_path) as searcher:
-            results = searcher.search("How was PFA calculated for the overall", context=1)
+            results = searcher.search(
+                "How was PFA calculated for the overall", context=1
+            )
             assert len(results) > 0
 
     def test_no_results(self, tmp_path: Path) -> None:
