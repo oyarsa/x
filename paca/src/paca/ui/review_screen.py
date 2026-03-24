@@ -25,6 +25,7 @@ from paca.schema import (
     ReminderConfig,
     ReminderMethod,
 )
+from paca.ui.confirm_modal import ConfirmModal
 
 _INPUT_FIELD_IDS: tuple[str, ...] = (
     "title",
@@ -110,7 +111,6 @@ class ReviewScreen(Screen[EventDraft | None]):
         self._calendars = calendars
         self._source_text = source_text
         self._confirmed_low_confidence = False
-        self._cancel_pending = False
         self._original_values: dict[str, str] = {
             "title": draft.title,
             "date": draft.date,
@@ -126,17 +126,19 @@ class ReviewScreen(Screen[EventDraft | None]):
         with Horizontal():
             with VerticalScroll(id="form-pane"):
                 yield Label("Title", classes="field-label")
-                yield Input(self._draft.title, id="title")
+                yield Input(self._draft.title, id="title", select_on_focus=False)
                 yield Label("Date (YYYY-MM-DD)", classes="field-label")
-                yield Input(self._draft.date, id="date")
+                yield Input(self._draft.date, id="date", select_on_focus=False)
                 yield Label("Start time (HH:MM)", classes="field-label")
-                yield Input(self._draft.start_time, id="start_time")
+                yield Input(
+                    self._draft.start_time, id="start_time", select_on_focus=False
+                )
                 yield Label("End time (HH:MM)", classes="field-label")
-                yield Input(self._draft.end_time, id="end_time")
+                yield Input(self._draft.end_time, id="end_time", select_on_focus=False)
                 yield Label("Location", classes="field-label")
-                yield Input(self._draft.location, id="location")
+                yield Input(self._draft.location, id="location", select_on_focus=False)
                 yield Label("Notes", classes="field-label")
-                yield Input(self._draft.notes, id="notes")
+                yield Input(self._draft.notes, id="notes", select_on_focus=False)
 
                 yield Label("Calendar", classes="field-label")
                 cal_options = [(cal.name, cal.id) for cal in self._calendars]
@@ -244,7 +246,6 @@ class ReviewScreen(Screen[EventDraft | None]):
 
         Checks required fields, max 5 reminders, and prompts on low confidence.
         """
-        self._cancel_pending = False
         draft = self._collect_draft()
         errors: list[str] = []
         if not draft.title:
@@ -273,20 +274,24 @@ class ReviewScreen(Screen[EventDraft | None]):
         self.dismiss(draft)
 
     def action_request_cancel(self) -> None:
-        """Handle Escape: confirm if edits exist, otherwise cancel immediately."""
+        """Handle Escape: show confirmation modal if edits exist."""
         if not self._has_edits():
             self.dismiss(None)
             return
 
-        if self._cancel_pending:
-            self.dismiss(None)
-            return
-
-        self.notify(
-            "You have unsaved changes. Press Esc again to discard.",
-            severity="warning",
+        self.app.push_screen(
+            ConfirmModal("Discard unsaved changes?"),
+            callback=self._on_cancel_confirmed,
         )
-        self._cancel_pending = True
+
+    def _on_cancel_confirmed(self, confirmed: bool | None) -> None:
+        """Handle the cancel confirmation modal result.
+
+        Args:
+            confirmed: True if the user chose to discard changes.
+        """
+        if confirmed:
+            self.dismiss(None)
 
     def action_reextract(self) -> None:
         """Request re-extraction from the app.
@@ -309,10 +314,6 @@ class ReviewScreen(Screen[EventDraft | None]):
         if original is not None:
             focused.value = original
             self.notify(f"Restored {focused.id.replace('_', ' ')}")
-
-    def on_input_changed(self, _event: Input.Changed) -> None:
-        """Reset the cancel confirmation when the user edits a field."""
-        self._cancel_pending = False
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle action bar buttons.
