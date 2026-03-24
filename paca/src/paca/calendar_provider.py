@@ -5,15 +5,18 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from pydantic import BaseModel
 
 from paca._shed.google import (
+    build_oauth_flow,
     calendar_list,
+    exchange_code,
+    get_auth_url,
     insert_event,
     load_credentials,
     refresh_credentials,
-    run_oauth_flow,
     save_credentials,
 )
 from paca.config import config_dir
@@ -82,11 +85,21 @@ def get_credentials() -> Any:
     raise AuthError(msg)
 
 
+_REDIRECT_URI = "http://localhost:1"
+"""Redirect URI for the manual copy-paste OAuth flow.
+
+Uses an unroutable localhost address so the browser shows the redirect URL
+in the address bar for the user to copy.
+"""
+
+
 def authenticate() -> Any:
     """Run the interactive OAuth flow to obtain Google credentials.
 
-    This must be run outside the TUI (e.g. via `paca auth`) because it
-    opens a browser and starts a local HTTP server for the callback.
+    Prints an authorisation URL for the user to visit, then prompts them
+    to paste back the redirect URL containing the auth code.
+
+    This must be run outside the TUI (e.g. via `paca auth`).
 
     Returns:
         Valid Google OAuth credentials.
@@ -102,7 +115,25 @@ def authenticate() -> Any:
         )
         raise FileNotFoundError(msg)
 
-    creds = run_oauth_flow(creds_path, SCOPES)
+    flow = build_oauth_flow(creds_path, SCOPES, redirect_uri=_REDIRECT_URI)
+    auth_url = get_auth_url(flow)
+
+    print(f"Open this URL in your browser:\n\n  {auth_url}\n")
+    print("After authorising, your browser will redirect to a localhost URL")
+    print(
+        "that won't load. Copy the FULL URL from the address bar and paste it here.\n"
+    )
+
+    redirect_url = input("Paste the redirect URL: ").strip()
+
+    parsed = urlparse(redirect_url)
+    params = parse_qs(parsed.query)
+    code_values = params.get("code")
+    if not code_values:
+        msg = "No authorisation code found in the URL. Please try again."
+        raise ValueError(msg)
+
+    creds = exchange_code(flow, code_values[0])
     save_credentials(creds, _token_path())
     return creds
 

@@ -36,8 +36,10 @@ def refresh_credentials(creds: Credentials) -> None:
     creds.refresh(Request())
 
 
-def run_oauth_flow(secrets_path: Path, scopes: Sequence[str]) -> Credentials:
-    """Run the installed-app OAuth flow for desktop credentials.
+def run_oauth_flow_local(secrets_path: Path, scopes: Sequence[str]) -> Credentials:
+    """Run the installed-app OAuth flow with a local redirect server.
+
+    Suitable when the CLI runs on the same machine as the browser.
 
     Args:
         secrets_path: Path to the client secrets JSON file.
@@ -48,6 +50,53 @@ def run_oauth_flow(secrets_path: Path, scopes: Sequence[str]) -> Credentials:
     """
     flow = InstalledAppFlow.from_client_secrets_file(str(secrets_path), list(scopes))
     return flow.run_local_server(port=0, open_browser=False)
+
+
+def build_oauth_flow(
+    secrets_path: Path,
+    scopes: Sequence[str],
+    redirect_uri: str,
+) -> InstalledAppFlow:
+    """Create an OAuth flow with a custom redirect URI.
+
+    Args:
+        secrets_path: Path to the client secrets JSON file.
+        scopes: Required OAuth scopes.
+        redirect_uri: The redirect URI to use.
+
+    Returns:
+        Configured OAuth flow.
+    """
+    flow = InstalledAppFlow.from_client_secrets_file(str(secrets_path), list(scopes))
+    flow.redirect_uri = redirect_uri
+    return flow
+
+
+def get_auth_url(flow: InstalledAppFlow) -> str:
+    """Generate the OAuth authorisation URL from a flow.
+
+    Args:
+        flow: A configured OAuth flow.
+
+    Returns:
+        The URL to visit in a browser.
+    """
+    url, _ = flow.authorization_url(prompt="consent")
+    return url
+
+
+def exchange_code(flow: InstalledAppFlow, code: str) -> Credentials:
+    """Exchange an authorisation code for credentials.
+
+    Args:
+        flow: The same OAuth flow used to generate the auth URL.
+        code: The authorisation code from the redirect.
+
+    Returns:
+        Valid OAuth credentials.
+    """
+    flow.fetch_token(code=code)
+    return flow.credentials
 
 
 def save_credentials(creds: Credentials, path: Path) -> None:
