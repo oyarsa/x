@@ -50,17 +50,22 @@ def _credentials_path() -> Path:
     return config_dir() / "credentials.json"
 
 
-def get_credentials() -> Any:
-    """Load or create Google OAuth credentials.
+class AuthError(Exception):
+    """Raised when Google Calendar authentication is not available."""
 
-    Reads cached token from the config directory. If missing or expired,
-    launches the installed-app OAuth flow.
+
+def get_credentials() -> Any:
+    """Load existing Google OAuth credentials, refreshing if expired.
+
+    Does NOT run the interactive OAuth flow — use `authenticate()` for that.
+    Raises `AuthError` if no valid credentials are available.
 
     Returns:
         Valid Google OAuth credentials.
 
     Raises:
-        FileNotFoundError: If credentials.json is not found.
+        AuthError: If credentials are missing, expired without refresh token,
+            or the client secrets file is not found.
     """
     token_path = _token_path()
     creds = load_credentials(token_path, SCOPES)
@@ -70,17 +75,35 @@ def get_credentials() -> Any:
 
     if creds and creds.expired and creds.refresh_token:
         refresh_credentials(creds)
-    else:
-        creds_path = _credentials_path()
-        if not creds_path.exists():
-            msg = (
-                f"Google OAuth credentials not found at {creds_path}. "
-                "Download credentials.json from Google Cloud Console."
-            )
-            raise FileNotFoundError(msg)
-        creds = run_oauth_flow(creds_path, SCOPES)
+        save_credentials(creds, token_path)
+        return creds
 
-    save_credentials(creds, token_path)
+    msg = "Not authenticated. Run `paca auth` to sign in to Google Calendar."
+    raise AuthError(msg)
+
+
+def authenticate() -> Any:
+    """Run the interactive OAuth flow to obtain Google credentials.
+
+    This must be run outside the TUI (e.g. via `paca auth`) because it
+    opens a browser and starts a local HTTP server for the callback.
+
+    Returns:
+        Valid Google OAuth credentials.
+
+    Raises:
+        FileNotFoundError: If credentials.json is not found.
+    """
+    creds_path = _credentials_path()
+    if not creds_path.exists():
+        msg = (
+            f"Google OAuth client secrets not found at {creds_path}. "
+            "Download credentials.json from Google Cloud Console."
+        )
+        raise FileNotFoundError(msg)
+
+    creds = run_oauth_flow(creds_path, SCOPES)
+    save_credentials(creds, _token_path())
     return creds
 
 

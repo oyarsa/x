@@ -5,6 +5,7 @@ from pathlib import Path
 
 import typer
 
+from paca.calendar_provider import authenticate
 from paca.config import (
     PacaConfig,
     config_path,
@@ -52,6 +53,24 @@ def init(
     )
     save_config(config, target)
     typer.echo(f"Created config at {target}")
+
+
+@app.command()
+def auth() -> None:
+    """Authenticate with Google Calendar via OAuth.
+
+    Opens a browser for the Google consent flow. Run this before using the TUI
+    for the first time, or if your token has expired and cannot be refreshed.
+    """
+    try:
+        authenticate()
+        typer.echo("Authenticated successfully.")
+    except FileNotFoundError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:
+        typer.echo(f"Authentication failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @app.command()

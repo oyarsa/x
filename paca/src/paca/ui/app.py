@@ -6,6 +6,7 @@ from textual.app import App
 from textual.worker import Worker, WorkerState
 
 from paca.calendar_provider import (
+    AuthError,
     CalendarInfo,
     build_event_body,
     create_event,
@@ -203,11 +204,19 @@ class PacaApp(App[None]):
         """
         if event.state != WorkerState.SUCCESS:
             if event.state == WorkerState.ERROR:
-                self.notify(
-                    f"Operation failed: {event.worker.error}",
-                    severity="error",
-                )
-                self.push_screen(HomeScreen(), callback=self._on_home_choice)
+                error = event.worker.error
+                if isinstance(error, AuthError):
+                    self.notify(
+                        "Not authenticated. Run `paca auth` first.",
+                        severity="error",
+                    )
+                    self.exit()
+                else:
+                    self.notify(
+                        f"Operation failed: {error}",
+                        severity="error",
+                    )
+                    self.push_screen(HomeScreen(), callback=self._on_home_choice)
             return
 
         if event.worker.name == "extract":
