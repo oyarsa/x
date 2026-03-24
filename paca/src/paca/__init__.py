@@ -15,7 +15,14 @@ from paca.config import (
 from paca.input_capture import CapturedInput, make_text_input, read_file_input
 from paca.ui.app import PacaApp
 
-app = typer.Typer(help="Parse and create calendar appointments.")
+app = typer.Typer(
+    help="Parse and create calendar appointments.",
+    context_settings={"help_option_names": ["-h", "--help"]},
+    add_completion=False,
+    rich_markup_mode="rich",
+    pretty_exceptions_show_locals=False,
+    no_args_is_help=True,
+)
 
 
 @app.command()
