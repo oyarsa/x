@@ -67,13 +67,10 @@ def clean_content(raw: dict[str, Any]) -> str | None:
     Returns None if the message should be skipped.
     """
     msg_type = raw.get("type", "")
-
     if msg_type in SKIP_TYPES:
         return None
-
     if raw.get("isSidechain", False):
         return None
-
     if msg_type not in ("user", "assistant"):
         return None
 

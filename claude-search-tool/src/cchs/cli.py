@@ -54,30 +54,29 @@ def _ensure_index(project_dir: Path) -> None:
         console.print("[dim]Indexing conversations for first search...[/dim]")
 
     try:
-        indexer = Indexer(db_path)
+        with Indexer.new(db_path) as indexer:
+            jsonl_files = sorted(project_dir.glob("*.jsonl"))
+            if not jsonl_files:
+                console.print(
+                    f"[yellow]No conversations found in project "
+                    f"'{project_dir.name}'. Verify you are in the correct project "
+                    f"directory, or use --project to specify one.[/yellow]"
+                )
+                raise typer.Exit(code=1)
+
+            for f in tqdm(
+                jsonl_files, desc="Indexing", disable=not is_new, file=sys.stderr
+            ):
+                session_id = f.stem
+                indexer.index_file(f, session_id=session_id)
+
+            indexer.cleanup_deleted_files(project_dir)
     except DatabaseCorruptError as exc:
         console.print(
             f"[red]Error:[/red] Database is corrupt at {db_path}. "
             "Run [bold]cchs index --force[/bold] to rebuild."
         )
         raise typer.Exit(code=1) from exc
-
-    jsonl_files = sorted(project_dir.glob("*.jsonl"))
-    if not jsonl_files:
-        indexer.close()
-        console.print(
-            f"[yellow]No conversations found in project "
-            f"'{project_dir.name}'. Verify you are in the correct project "
-            f"directory, or use --project to specify one.[/yellow]"
-        )
-        raise typer.Exit(code=1)
-
-    for f in tqdm(jsonl_files, desc="Indexing", disable=not is_new, file=sys.stderr):
-        session_id = f.stem
-        indexer.index_file(f, session_id=session_id)
-
-    indexer.cleanup_deleted_files(project_dir)
-    indexer.close()
 
 
 @app.command()
@@ -108,16 +107,15 @@ def search(
     _ensure_index(project_dir)
 
     db_path = project_dir / "search.db"
-    searcher = Searcher(db_path)
-    results = searcher.search(
-        query,
-        context=context,
-        limit=limit,
-        session_id=session,
-        since=since,
-        until=until,
-    )
-    searcher.close()
+    with Searcher.new(db_path) as searcher:
+        results = searcher.search(
+            query,
+            context=context,
+            limit=limit,
+            session_id=session,
+            since=since,
+            until=until,
+        )
 
     if output_json:
         print_json_results(results)
@@ -146,9 +144,8 @@ def expand(
     _ensure_index(project_dir)
 
     db_path = project_dir / "search.db"
-    searcher = Searcher(db_path)
-    result = searcher.expand(uuid, before=before, after=after, full=full)
-    searcher.close()
+    with Searcher.new(db_path) as searcher:
+        result = searcher.expand(uuid, before=before, after=after, full=full)
 
     if result is None:
         console.print(
@@ -188,23 +185,21 @@ def index(
             db_path.unlink()
         console.print("[dim]Rebuilding index from scratch...[/dim]")
 
-    indexer = Indexer(db_path)
-    jsonl_files = sorted(project_dir.glob("*.jsonl"))
+    with Indexer.new(db_path) as indexer:
+        jsonl_files = sorted(project_dir.glob("*.jsonl"))
 
-    if not jsonl_files:
-        indexer.close()
-        console.print(
-            f"[yellow]No conversations found in project '{project_dir.name}'.[/yellow]"
-        )
-        raise typer.Exit(code=1)
+        if not jsonl_files:
+            console.print(
+                f"[yellow]No conversations found in project '{project_dir.name}'.[/yellow]"
+            )
+            raise typer.Exit(code=1)
 
-    for f in tqdm(jsonl_files, desc="Indexing", file=sys.stderr):
-        session_id = f.stem
-        indexer.index_file(f, session_id=session_id)
+        for f in tqdm(jsonl_files, desc="Indexing", file=sys.stderr):
+            session_id = f.stem
+            indexer.index_file(f, session_id=session_id)
 
-    indexer.cleanup_deleted_files(project_dir)
-    count = indexer.message_count()
-    indexer.close()
+        indexer.cleanup_deleted_files(project_dir)
+        count = indexer.message_count()
 
     console.print(
         f"[green]Indexed {count} messages from {len(jsonl_files)} sessions.[/green]"

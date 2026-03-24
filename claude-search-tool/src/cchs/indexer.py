@@ -2,8 +2,10 @@
 
 import logging
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
 from cchs.models import Message
 from cchs.parser import parse_jsonl_file
@@ -57,22 +59,25 @@ CREATE TABLE IF NOT EXISTS index_metadata (
 class Indexer:
     """Manages the SQLite FTS5 search index for a project."""
 
-    def __init__(self, db_path: Path) -> None:
-        self._db_path = db_path
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+        self._init_db()
+
+    @classmethod
+    @contextmanager
+    def new(cls, db_path: Path) -> Iterator[Indexer]:
+        """Open a database connection and yield an Indexer, closing on exit."""
         try:
-            self._conn = sqlite3.connect(str(db_path))
-            self._conn.row_factory = sqlite3.Row
-            self._init_db()
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            indexer = cls(conn)
         except sqlite3.DatabaseError as e:
             raise DatabaseCorruptError(db_path) from e
 
-    def __enter__(self) -> Self:
-        """Enter context manager."""
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        """Exit context manager and close the database."""
-        self.close()
+        try:
+            yield indexer
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         """Create tables and set pragmas."""
@@ -213,7 +218,3 @@ class Indexer:
                     (row["file_path"],),
                 )
         self._conn.commit()
-
-    def close(self) -> None:
-        """Close the database connection."""
-        self._conn.close()

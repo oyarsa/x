@@ -2,9 +2,10 @@
 
 import re
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Self
 
 from cchs.models import ExpandResult, Message, SearchResult
 
@@ -69,17 +70,20 @@ def _row_to_message(row: sqlite3.Row) -> Message:
 class Searcher:
     """Executes search and expand queries against the FTS5 index."""
 
-    def __init__(self, db_path: Path) -> None:
-        self._conn = sqlite3.connect(str(db_path))
-        self._conn.row_factory = sqlite3.Row
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
 
-    def __enter__(self) -> Self:
-        """Enter context manager."""
-        return self
+    @classmethod
+    @contextmanager
+    def new(cls, db_path: Path) -> Iterator[Searcher]:
+        """Open a database connection and yield a Searcher, closing on exit."""
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
 
-    def __exit__(self, *_: object) -> None:
-        """Exit context manager."""
-        self.close()
+        try:
+            yield cls(conn)
+        finally:
+            conn.close()
 
     def _get_context(
         self,
@@ -198,7 +202,3 @@ class Searcher:
             messages = [*before_msgs, target, *after_msgs]
 
         return ExpandResult(messages=messages, session_id=target.session_id)
-
-    def close(self) -> None:
-        """Close the database connection."""
-        self._conn.close()
