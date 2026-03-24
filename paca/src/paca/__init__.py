@@ -14,7 +14,6 @@ from paca.config import (
     save_config,
 )
 from paca.input_capture import CapturedInput, make_text_input, read_file_input
-from paca.ui.app import PacaApp
 
 app = typer.Typer(
     help="Parse and create calendar appointments.",
@@ -88,6 +87,10 @@ def run(
             captured = make_text_input(text, source="stdin")
         else:
             captured = read_file_input(file)
+
+    # Import here to avoid Textual initialisation when running non-TUI
+    # commands like `auth` or `init`.
+    from paca.ui.app import PacaApp  # noqa: PLC0415
 
     config = load_config()
     tui = PacaApp(config=config, initial_input=captured)
