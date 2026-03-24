@@ -53,21 +53,22 @@ def run_oauth_flow_local(secrets_path: Path, scopes: Sequence[str]) -> Credentia
 
 
 def build_oauth_flow(
-    secrets_path: Path,
+    client_config: dict[str, Any],
     scopes: Sequence[str],
     redirect_uri: str,
 ) -> InstalledAppFlow:
-    """Create an OAuth flow with a custom redirect URI.
+    """Create an OAuth flow from a client config dict.
 
     Args:
-        secrets_path: Path to the client secrets JSON file.
+        client_config: OAuth client configuration dict (same structure as
+            credentials.json).
         scopes: Required OAuth scopes.
         redirect_uri: The redirect URI to use.
 
     Returns:
         Configured OAuth flow.
     """
-    flow = InstalledAppFlow.from_client_secrets_file(str(secrets_path), list(scopes))
+    flow = InstalledAppFlow.from_client_config(client_config, list(scopes))
     flow.redirect_uri = redirect_uri
     return flow
 

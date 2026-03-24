@@ -1,6 +1,7 @@
 """Google Calendar API integration: auth, calendar listing, event creation."""
 
 import datetime
+import json
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -20,6 +21,7 @@ from paca._shed.google import (
     save_credentials,
 )
 from paca.config import config_dir
+from paca.oauth_client import load_client_config
 from paca.schema import (
     DEFAULT_DURATION_MINUTES,
     EventDraft,
@@ -46,11 +48,6 @@ class CalendarInfo(BaseModel, frozen=True):
 def _token_path() -> Path:
     """Return the path to the stored OAuth token."""
     return config_dir() / "token.json"
-
-
-def _credentials_path() -> Path:
-    """Return the path to the OAuth client credentials file."""
-    return config_dir() / "credentials.json"
 
 
 class AuthError(Exception):
@@ -93,29 +90,33 @@ in the address bar for the user to copy.
 """
 
 
+def _client_config() -> dict[str, object]:
+    """Return the OAuth client config from the user's credentials.json.
+
+    Returns:
+        OAuth client configuration dict.
+
+    Raises:
+        FileNotFoundError: If credentials.json is missing.
+    """
+    return load_client_config()
+
+
 def authenticate() -> Any:
     """Run the interactive OAuth flow to obtain Google credentials.
 
     Prints an authorisation URL for the user to visit, then prompts them
     to paste back the redirect URL containing the auth code.
 
+    Uses the OAuth client config from credentials.json in the
+    paca config directory.
+
     This must be run outside the TUI (e.g. via `paca auth`).
 
     Returns:
         Valid Google OAuth credentials.
-
-    Raises:
-        FileNotFoundError: If credentials.json is not found.
     """
-    creds_path = _credentials_path()
-    if not creds_path.exists():
-        msg = (
-            f"Google OAuth client secrets not found at {creds_path}. "
-            "Download credentials.json from Google Cloud Console."
-        )
-        raise FileNotFoundError(msg)
-
-    flow = build_oauth_flow(creds_path, SCOPES, redirect_uri=_REDIRECT_URI)
+    flow = build_oauth_flow(_client_config(), SCOPES, redirect_uri=_REDIRECT_URI)
     auth_url = get_auth_url(flow)
 
     print(f"Open this URL in your browser:\n\n  {auth_url}\n")
