@@ -1,0 +1,7 @@
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"Hello"},"uuid":"msg-010","timestamp":"2026-03-20T11:00:00.000Z","sessionId":"session-2","cwd":"/home/dev/work/foo"}
+{"type":"file-history-snapshot","messageId":"msg-011","snapshot":{"messageId":"msg-011","trackedFileBackups":{},"timestamp":"2026-03-20T11:00:01.000Z"}}
+{"type":"progress","data":{"message":{},"type":"agent_progress"},"uuid":"msg-012","timestamp":"2026-03-20T11:00:02.000Z"}
+{"type":"system","subtype":"turn_duration","uuid":"msg-013","timestamp":"2026-03-20T11:00:03.000Z"}
+{"type":"last-prompt","uuid":"msg-014","timestamp":"2026-03-20T11:00:04.000Z"}
+{"parentUuid":"msg-010","isSidechain":true,"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Sidechain response"}]},"uuid":"msg-015","timestamp":"2026-03-20T11:00:05.000Z","sessionId":"session-2","cwd":"/home/dev/work/foo"}
+{"parentUuid":"msg-010","isSidechain":false,"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Main response"}]},"uuid":"msg-016","timestamp":"2026-03-20T11:00:06.000Z","sessionId":"session-2","cwd":"/home/dev/work/foo"}
