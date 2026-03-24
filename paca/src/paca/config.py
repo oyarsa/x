@@ -3,11 +3,14 @@
 import datetime
 import os
 import tomllib
+import zoneinfo
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
+
+from paca.schema import ReminderMethod
 
 
 def config_dir() -> Path:
@@ -31,7 +34,7 @@ class PacaConfig(BaseModel, frozen=True):
 
     default_calendar_name: str = "Compromissos"
     default_duration_minutes: int = 60
-    default_reminder_method: str = "popup"
+    default_reminder_method: ReminderMethod = ReminderMethod.POPUP
     default_reminder_minutes: Sequence[int] = (10, 30)
     timezone: str = ""
     model: str = "gpt-4o"
@@ -94,8 +97,8 @@ def detect_timezone() -> str:
     """
     try:
         tz = datetime.datetime.now(datetime.UTC).astimezone().tzinfo
-        if tz and hasattr(tz, "key"):
-            return tz.key  # type: ignore[union-attr]
+        if isinstance(tz, zoneinfo.ZoneInfo):
+            return tz.key
     except Exception:  # noqa: S110
         pass
     return "UTC"

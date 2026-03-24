@@ -240,8 +240,12 @@ class ReviewScreen(Screen[EventDraft | None]):
         self.dismiss(draft)
 
     def action_reextract(self) -> None:
-        """Request re-extraction from the app."""
-        self.dismiss(None)
+        """Request re-extraction from the app.
+
+        Dismisses with a sentinel empty EventDraft (empty title) to signal
+        re-extraction. The app distinguishes this from a normal cancel (None).
+        """
+        self.dismiss(EventDraft())
 
     def action_toggle_debug(self) -> None:
         """Toggle the raw JSON debug pane."""
