@@ -33,7 +33,7 @@ def init(
 
 @app.command()
 def run(
-    file: Path | None = typer.Argument(
+    file: Path | None = typer.Argument(  # noqa: B008
         None, help="Image or text file to extract from. Use - for stdin."
     ),
 ) -> None:

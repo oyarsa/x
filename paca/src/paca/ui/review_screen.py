@@ -174,7 +174,9 @@ class ReviewScreen(Screen[EventDraft | None]):
         notes_val = self.query_one("#notes", Input).value
 
         cal_select = self.query_one("#calendar", Select)
-        calendar_id = str(cal_select.value) if cal_select.value is not Select.BLANK else ""
+        calendar_id = (
+            str(cal_select.value) if cal_select.value is not Select.BLANK else ""
+        )
         calendar_name = ""
         for cal in self._calendars:
             if cal.id == calendar_id:
