@@ -14,6 +14,7 @@ from paca.config import (
     save_config,
 )
 from paca.input_capture import CapturedInput, make_text_input, read_file_input
+from paca.ui.app import PacaApp
 
 app = typer.Typer(
     help="Parse and create calendar appointments.",
@@ -61,9 +62,11 @@ def auth() -> None:
     Opens a browser for the Google consent flow. Run this before using the TUI
     for the first time, or if your token has expired and cannot be refreshed.
     """
+    typer.echo("Starting Google Calendar OAuth flow...")
+    typer.echo("A URL will be printed below. Open it in your browser to sign in.\n")
     try:
         authenticate()
-        typer.echo("Authenticated successfully.")
+        typer.echo("\nAuthenticated successfully.")
     except FileNotFoundError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -87,10 +90,6 @@ def run(
             captured = make_text_input(text, source="stdin")
         else:
             captured = read_file_input(file)
-
-    # Import here to avoid Textual initialisation when running non-TUI
-    # commands like `auth` or `init`.
-    from paca.ui.app import PacaApp  # noqa: PLC0415
 
     config = load_config()
     tui = PacaApp(config=config, initial_input=captured)

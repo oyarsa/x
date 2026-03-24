@@ -47,7 +47,7 @@ def run_oauth_flow(secrets_path: Path, scopes: Sequence[str]) -> Credentials:
         Fresh OAuth credentials.
     """
     flow = InstalledAppFlow.from_client_secrets_file(str(secrets_path), list(scopes))
-    return flow.run_local_server(port=0)
+    return flow.run_local_server(port=0, open_browser=False)
 
 
 def save_credentials(creds: Credentials, path: Path) -> None:
