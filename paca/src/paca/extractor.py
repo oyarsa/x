@@ -31,6 +31,50 @@ unless there is no better option.
 type ExtractionInput = list[dict[str, Any]]
 
 
+def _make_strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Transform a Pydantic JSON schema into an OpenAI strict-mode compatible schema.
+
+    OpenAI strict structured outputs require:
+    - All properties listed in `required`
+    - `additionalProperties: false` on every object
+    - No `default` keys
+
+    Args:
+        schema: A Pydantic-generated JSON schema.
+
+    Returns:
+        A new schema dict compatible with OpenAI strict mode.
+    """
+    schema = dict(schema)
+
+    # Process $defs
+    if "$defs" in schema:
+        schema["$defs"] = {
+            k: _make_strict_schema(v) for k, v in schema["$defs"].items()
+        }
+
+    # For object types, require all properties and ban extras
+    if schema.get("type") == "object" and "properties" in schema:
+        schema["required"] = list(schema["properties"])
+        schema["additionalProperties"] = False
+        schema["properties"] = {
+            k: _make_strict_schema(v) for k, v in schema["properties"].items()
+        }
+
+    # Strip defaults (OpenAI rejects them)
+    schema.pop("default", None)
+
+    # Recurse into array items
+    if "items" in schema:
+        schema["items"] = _make_strict_schema(schema["items"])
+
+    # Recurse into anyOf
+    if "anyOf" in schema:
+        schema["anyOf"] = [_make_strict_schema(s) for s in schema["anyOf"]]
+
+    return schema
+
+
 def build_extraction_input(captured: CapturedInput) -> list[dict[str, Any]]:
     """Build the input list for the Responses API.
 
@@ -92,7 +136,7 @@ def extract(captured: CapturedInput, *, model: str = "gpt-4o") -> ExtractionResu
             "format": {
                 "type": "json_schema",
                 "name": "extraction_result",
-                "schema": ExtractionResult.model_json_schema(),
+                "schema": _make_strict_schema(ExtractionResult.model_json_schema()),
                 "strict": True,
             },
         },
