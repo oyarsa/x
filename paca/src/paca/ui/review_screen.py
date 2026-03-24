@@ -26,6 +26,16 @@ from paca.schema import (
     ReminderMethod,
 )
 
+_INPUT_FIELD_IDS: tuple[str, ...] = (
+    "title",
+    "date",
+    "start_time",
+    "end_time",
+    "location",
+    "notes",
+)
+"""IDs of the Input widgets on the review form."""
+
 
 class ReviewScreen(Screen[EventDraft | None]):
     """Editable form for reviewing and confirming an event draft.
@@ -34,10 +44,11 @@ class ReviewScreen(Screen[EventDraft | None]):
     """
 
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
-        ("escape", "cancel", "Back"),
+        ("escape", "request_cancel", "Back"),
         ("s", "save", "Save"),
         ("r", "reextract", "Re-extract"),
         ("e", "toggle_debug", "Debug JSON"),
+        ("ctrl+z", "undo_field", "Undo field"),
     ]
 
     CSS = """
@@ -99,6 +110,15 @@ class ReviewScreen(Screen[EventDraft | None]):
         self._calendars = calendars
         self._source_text = source_text
         self._confirmed_low_confidence = False
+        self._cancel_pending = False
+        self._original_values: dict[str, str] = {
+            "title": draft.title,
+            "date": draft.date,
+            "start_time": draft.start_time,
+            "end_time": draft.end_time,
+            "location": draft.location,
+            "notes": draft.notes,
+        }
 
     def compose(self) -> ComposeResult:
         """Build the review form layout."""
@@ -160,6 +180,18 @@ class ReviewScreen(Screen[EventDraft | None]):
             yield Button("Save", id="save", variant="success")
         yield Footer()
 
+    def _has_edits(self) -> bool:
+        """Check whether any field has been modified from the original draft.
+
+        Returns:
+            True if any Input field differs from its original value.
+        """
+        for field_id in _INPUT_FIELD_IDS:
+            current = self.query_one(f"#{field_id}", Input).value
+            if current != self._original_values[field_id]:
+                return True
+        return False
+
     def _collect_draft(self) -> EventDraft:
         """Gather current form values into an EventDraft.
 
@@ -212,6 +244,7 @@ class ReviewScreen(Screen[EventDraft | None]):
 
         Checks required fields, max 5 reminders, and prompts on low confidence.
         """
+        self._cancel_pending = False
         draft = self._collect_draft()
         errors: list[str] = []
         if not draft.title:
@@ -239,6 +272,22 @@ class ReviewScreen(Screen[EventDraft | None]):
 
         self.dismiss(draft)
 
+    def action_request_cancel(self) -> None:
+        """Handle Escape: confirm if edits exist, otherwise cancel immediately."""
+        if not self._has_edits():
+            self.dismiss(None)
+            return
+
+        if self._cancel_pending:
+            self.dismiss(None)
+            return
+
+        self.notify(
+            "You have unsaved changes. Press Esc again to discard.",
+            severity="warning",
+        )
+        self._cancel_pending = True
+
     def action_reextract(self) -> None:
         """Request re-extraction from the app.
 
@@ -251,9 +300,19 @@ class ReviewScreen(Screen[EventDraft | None]):
         """Toggle the raw JSON debug pane."""
         self.notify("Debug JSON toggle not yet implemented", severity="warning")
 
-    def action_cancel(self) -> None:
-        """Cancel and return to home."""
-        self.dismiss(None)
+    def action_undo_field(self) -> None:
+        """Restore the focused Input field to its original extracted value."""
+        focused = self.focused
+        if not isinstance(focused, Input) or focused.id is None:
+            return
+        original = self._original_values.get(focused.id)
+        if original is not None:
+            focused.value = original
+            self.notify(f"Restored {focused.id.replace('_', ' ')}")
+
+    def on_input_changed(self, _event: Input.Changed) -> None:
+        """Reset the cancel confirmation when the user edits a field."""
+        self._cancel_pending = False
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle action bar buttons.
@@ -264,4 +323,4 @@ class ReviewScreen(Screen[EventDraft | None]):
         if event.button.id == "save":
             self.action_save()
         elif event.button.id == "back":
-            self.action_cancel()
+            self.action_request_cancel()
