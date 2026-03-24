@@ -5,7 +5,13 @@ from pathlib import Path
 
 import typer
 
-from paca.config import PacaConfig, config_path, load_config, save_config
+from paca.config import (
+    PacaConfig,
+    config_path,
+    detect_timezone,
+    load_config,
+    save_config,
+)
 from paca.input_capture import CapturedInput, make_text_input, read_file_input
 from paca.ui.app import PacaApp
 
@@ -26,7 +32,17 @@ def init(
         typer.echo(f"Config already exists at {target}")
         raise typer.Exit(code=1)
 
-    config = PacaConfig()
+    tz = detect_timezone()
+
+    calendar_name = typer.prompt("Default calendar name", default="Compromissos")
+    timezone = typer.prompt("Timezone", default=tz)
+    model = typer.prompt("OpenAI model", default="gpt-4o")
+
+    config = PacaConfig(
+        default_calendar_name=calendar_name,
+        timezone=timezone,
+        model=model,
+    )
     save_config(config, target)
     typer.echo(f"Created config at {target}")
 

@@ -20,7 +20,9 @@ class TestCli:
     def test_init_creates_config(self, tmp_path: Path) -> None:
         """Should create a config file."""
         config_file = tmp_path / "config.toml"
-        result = runner.invoke(app, ["init", "--config-path", str(config_file)])
+        result = runner.invoke(
+            app, ["init", "--config-path", str(config_file)], input="\n\n\n"
+        )
         assert result.exit_code == 0
         assert config_file.exists()
 
