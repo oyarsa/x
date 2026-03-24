@@ -1,0 +1,107 @@
+[project]
+name = "paca"
+version = "0.1.0"
+description = "PArse and create CAlendar appointments"
+readme = "README.md"
+authors = [
+    { name = "Italo Silva", email = "italo@maleldil.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "google-api-python-client>=2.193.0",
+    "google-auth-oauthlib>=1.3.0",
+    "openai>=2.29.0",
+    "pydantic>=2.12.5",
+    "pyperclip>=1.11.0",
+    "python-dotenv>=1.2.2",
+    "rich>=14.3.3",
+    "textual>=8.1.1",
+    "typer>=0.24.1",
+]
+license = {text = "AGPL-3.0-or-later"}
+
+[project.scripts]
+paca = "paca:main"
+
+[build-system]
+requires = ["uv_build>=0.9.27,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.14.14",
+    "ty>=0.0.24",
+]
+
+[tool.ruff]
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+# I try to enable as many reasonable rules as possible, but sometimes it's too much:
+ignore = [
+    "FIX",      # Allow FIX/TODO/XXX comments.
+    "TD",       # Allow TODO comments without author/link
+    "COM",      # Let ruff take care of trailing commas
+    "T",        # Allow print
+    "FLY",      # Allow static string joins
+    "FBT",      # Allow positional boolean arguments
+    "EM",       # Exception messages with literals/f-strings
+    "A",        # Allow shadowing built-ins
+    "ARG",      # Allow unused arguments
+    "BLE",      # Allow blind excepts
+    "PLR",      # "Too many" warnings
+    #
+    "ANN401",   # Allow usage of Any
+    "B905",     # `zip` without `strict`
+    "C901",     # "too complex" functions
+    "D107",     # Allow no docstring in __init__
+    "D202",     # Empty lines between function docstring and body
+    "E501",     # Line too long (let ruff format take care of this)
+    "G004",     # f-strings in logging
+    "ISC001",   # Incompatible with the formatter
+    "PERF401",  # Manual list comprehensions
+    "PERF203",  # Allow try/except inside loops
+    "PGH003",   # Allow blanket type: ignore statements
+    "PLC0206",  # Dictionary iteration without items
+    "PLC0414",  # Allow redundant alias to re-export items
+    "PTH123",   # Allow `open(p)` instead of `Path(p).open`
+    "RET505",   # Allow `else` after `return`. I like this symmetry in some cases.
+    "RET504",   # Allow 'unnecessary' assignment before return.
+    "S101",     # Allow assert
+    "S311",     # Allow regular `random.Random` (not crypto safe, but that's fine)
+    "S603",     # Allow subprocess with 'untrusted' input
+    "S607",     # Allow subprocess with relative path (usually `uv run`)
+    "SIM108",   # Use ternary operation instead of if-else block
+    "TC",       # PEP 649 (Python 3.14) makes TYPE_CHECKING guards unnecessary for
+                # annotation-only imports. Keep heavy guards (transformers, etc.) by
+                # choice, but don't lint for them.
+    "TRY003",   # Long messages outside exception class
+    "INP001",   # Disable annoying error about implicit namespaces
+    "TRY301",   # Enable raise inside try/except
+    "PYI025",   # Allow `collections.abc.Set` without aliasing to `AbstractSet`
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["SLF001"]  # Allow private member access in tests
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ty.rules]
+ambiguous-protocol-member = "error"
+ineffective-final = "error"
+invalid-enum-member-annotation = "error"
+invalid-legacy-positional-parameter = "error"
+possibly-missing-implicit-call = "error"
+possibly-missing-submodule = "error"
+redundant-cast = "error"
+redundant-final-classvar = "error"
+undefined-reveal = "error"
+unresolved-global = "error"
+unsupported-base = "error"
+unsupported-dynamic-base = "error"
+unused-awaitable = "error"
+unused-type-ignore-comment = "ignore"
+useless-overload-body = "error"

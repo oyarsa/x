@@ -1,0 +1,36 @@
+_default:
+    @just --list
+
+# Run ruff check with autofix
+fix:
+    uv run ruff check . --fix
+
+# Run ruff check (no fix)
+check:
+    uv run ruff check .
+
+# Run ruff format
+fmt:
+    uv run ruff format .
+
+# Run ty
+type:
+    uv run ty check
+
+# Run unit tests
+test:
+    uv run pytest --quiet tests/
+
+# Run typecheck and tests in parallel
+[parallel]
+_type-test: test type
+
+# Run ruff check, ruff format, and ty
+lint: fix fmt _type-test
+
+# Check ruff lint and ty
+check-all: check _type-test
+
+# Watch Python files and run ruff and ty on changes
+watch:
+    watchexec --exts=py --clear --restart "just check-all"
