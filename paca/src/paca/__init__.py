@@ -35,7 +35,7 @@ def init(
 def run(
     file: Path | None = typer.Argument(
         None, help="Image or text file to extract from. Use - for stdin."
-    ),  # noqa: B008
+    ),
 ) -> None:
     """Launch the TUI to extract and create a calendar event."""
     captured: CapturedInput | None = None
