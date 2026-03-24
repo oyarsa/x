@@ -1,5 +1,7 @@
 """Main Textual application for paca."""
 
+from pathlib import Path
+
 from textual.app import App
 
 from paca.calendar_provider import (
@@ -11,13 +13,20 @@ from paca.calendar_provider import (
 )
 from paca.config import PacaConfig, detect_timezone
 from paca.extractor import extract
-from paca.input_capture import CapturedInput, capture_clipboard
+from paca.input_capture import (
+    CapturedInput,
+    capture_clipboard,
+    make_text_input,
+    read_file_input,
+)
 from paca.schema import (
     EventDraft,
     ReminderConfig,
     ReminderMethod,
 )
+from paca.ui.file_input_screen import FileInputScreen
 from paca.ui.home_screen import HomeScreen
+from paca.ui.paste_screen import PasteScreen
 from paca.ui.review_screen import ReviewScreen
 from paca.ui.success_screen import SuccessScreen
 
@@ -82,14 +91,42 @@ class PacaApp(App[None]):
         self._start_extraction(captured)
 
     def _load_from_file(self) -> None:
-        """Placeholder for file loading."""
-        self.notify("File loading not yet implemented", severity="warning")
-        self.push_screen(HomeScreen(), callback=self._on_home_choice)
+        """Show a path input screen for loading a file."""
+        self.push_screen(FileInputScreen(), callback=self._on_file_result)
+
+    def _on_file_result(self, path_str: str | None) -> None:
+        """Handle file input screen result.
+
+        Args:
+            path_str: The file path entered by the user, or None if cancelled.
+        """
+        if path_str is None:
+            self.push_screen(HomeScreen(), callback=self._on_home_choice)
+            return
+        path = Path(path_str)
+        try:
+            captured = read_file_input(path)
+        except FileNotFoundError:
+            self.notify(f"File not found: {path}", severity="error")
+            self.push_screen(HomeScreen(), callback=self._on_home_choice)
+            return
+        self._start_extraction(captured)
 
     def _paste_text(self) -> None:
-        """Placeholder for manual text paste."""
-        self.notify("Text paste not yet implemented", severity="warning")
-        self.push_screen(HomeScreen(), callback=self._on_home_choice)
+        """Show the paste screen for manual text entry."""
+        self.push_screen(PasteScreen(), callback=self._on_paste_result)
+
+    def _on_paste_result(self, text: str | None) -> None:
+        """Handle paste screen result.
+
+        Args:
+            text: The text entered by the user, or None if cancelled.
+        """
+        if text is None:
+            self.push_screen(HomeScreen(), callback=self._on_home_choice)
+            return
+        captured = make_text_input(text, source="manual paste")
+        self._start_extraction(captured)
 
     def _start_extraction(self, captured: CapturedInput) -> None:
         """Begin LLM extraction from captured input.
