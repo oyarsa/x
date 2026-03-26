@@ -11,7 +11,7 @@ from cchs.parser import parse_jsonl_file
 
 logger = logging.getLogger("cchs")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class DatabaseCorruptError(Exception):
@@ -28,11 +28,12 @@ CREATE_MESSAGES = """
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
-    uuid TEXT NOT NULL UNIQUE,
+    uuid TEXT NOT NULL,
     role TEXT NOT NULL,
     content TEXT NOT NULL,
     timestamp TEXT NOT NULL,
-    message_index INTEGER NOT NULL
+    message_index INTEGER NOT NULL,
+    UNIQUE(session_id, uuid)
 )
 """
 
