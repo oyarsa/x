@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+	echo "Usage: memtree [N]"
+	echo ""
+	echo "Show the top N memory-consuming process trees (default: 10)."
+	echo "Groups similar processes and displays a formatted table with"
+	echo "self RSS, tree-aggregated RSS, and contextual notes."
+	exit 0
+fi
+
+N="${1:-10}"
+MODEL="${MODEL:-gpt-5.4-mini}"
+LLM="/home/dev/.local/share/mise/installs/pipx-llm/0.29/bin/llm"
+
+# Collect process data: pid, ppid, rss (KB), full command
+data=$(ps -e -o pid=,ppid=,rss=,args= --no-headers)
+
+# Phase 1: compute tree RSS and group by program basename
+grouped=$(echo "$data" | awk '
+function basename(cmd,    parts, n, base) {
+    # Extract the first token (binary path), then get basename
+    split(cmd, parts, " ")
+    n = split(parts[1], base, "/")
+    return base[n]
+}
+
+function human(kb,    val) {
+    if (kb >= 1048576) return sprintf("%.1f GB", kb / 1048576)
+    if (kb >= 1024)    return sprintf("%.0f MB", kb / 1024)
+    return kb " KB"
+}
+
+{
+    pid = $1; ppid = $2; rss = $3
+    cmd = ""
+    for (i = 4; i <= NF; i++) cmd = cmd (i > 4 ? " " : "") $i
+
+    mem[pid] = rss
+    parent[pid] = ppid
+    command[pid] = cmd
+    pids[NR] = pid
+}
+END {
+    # Compute tree RSS
+    for (i in pids) {
+        p = pids[i]
+        tree[p] += mem[p]
+        cur = parent[p]
+        while (cur != 0 && cur in mem) {
+            tree[cur] += mem[p]
+            cur = parent[cur]
+        }
+    }
+
+    # Group by basename, only processes with > 4MB self RSS
+    for (i in pids) {
+        p = pids[i]
+        if (mem[p] < 4096) continue
+
+        name = basename(command[p])
+        gsub(/^-/, "", name)  # merge login shells (e.g. -fish -> fish)
+        group_count[name]++
+        group_self[name] += mem[p]
+
+        # Track max tree RSS in group
+        if (tree[p] > group_tree_max[name])
+            group_tree_max[name] = tree[p]
+
+        # Collect up to 3 sample commands for LLM context
+        if (group_count[name] <= 3)
+            group_samples[name] = group_samples[name] ";;;" command[p]
+    }
+
+    # Print grouped data (will be sorted externally)
+    # Format: sort_key \t proc_label \t self_human \t tree_str \t samples
+    for (name in group_self) {
+        cnt = group_count[name]
+        self_kb = group_self[name]
+        tree_kb = group_tree_max[name]
+
+        if (cnt == 1)
+            proc_label = name
+        else
+            proc_label = name " (" cnt " instances)"
+
+        if (cnt > 1)
+            tree_str = "---"
+        else
+            tree_str = human(tree_kb)
+
+        printf "%012d\t%s\t%s\t%s\t%s\n", self_kb, proc_label, human(self_kb), tree_str, group_samples[name]
+    }
+}' | sort -t$'\t' -k1 -rn | head -n "$N" | cut -f2-)
+
+# Phase 2: ask LLM only for notes
+notes=$(echo "$grouped" | awk -F'\t' '{ print $1 "\t" $4 }' | $LLM -m "$MODEL" \
+	"You are given tab-separated data: ProcessLabel, SampleCommands (;;; delimited).
+For each row, output exactly one short note (under 60 chars) describing what the process does, based on its command line args. Extract useful context like file paths, project names, flags.
+Output one note per line, in the same order. No numbering, no extra text.")
+
+# Phase 3: format the table
+paste <(echo "$grouped" | cut -f1-3) <(echo "$notes") | awk -F'\t' '
+BEGIN {
+    headers[1] = "Process"
+    headers[2] = "Self RSS"
+    headers[3] = "Tree RSS"
+    headers[4] = "Notes"
+    for (i = 1; i <= 4; i++) width[i] = length(headers[i])
+}
+{
+    for (i = 1; i <= 4; i++) {
+        val = $i
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
+        row[NR][i] = val
+        if (length(val) > width[i]) width[i] = length(val)
+    }
+    nrows = NR
+}
+END {
+    # Replace "---" with em dash for display
+    for (r = 1; r <= nrows; r++)
+        if (row[r][3] == "---") row[r][3] = "\xe2\x80\x94"
+
+    # Header
+    printf "| %-*s | %-*s | %-*s | %-*s |\n", width[1], headers[1], width[2], headers[2], width[3], headers[3], width[4], headers[4]
+
+    # Separator
+    printf "|"
+    for (i = 1; i <= 4; i++) {
+        printf "-"
+        for (j = 1; j <= width[i]; j++) printf "-"
+        printf "-|"
+    }
+    printf "\n"
+
+    # Rows
+    for (r = 1; r <= nrows; r++) {
+        printf "| %-*s | %-*s | %-*s | %-*s |\n", width[1], row[r][1], width[2], row[r][2], width[3], row[r][3], width[4], row[r][4]
+    }
+}'
